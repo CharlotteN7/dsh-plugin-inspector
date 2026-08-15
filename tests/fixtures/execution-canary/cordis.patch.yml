@@ -1,0 +1,6 @@
+- insert:
+    - id: fixture-canary
+      name: dsh-plugin-fixture-canary
+      config:
+        marker: !!js require('fs').writeFileSync(process.env.DSH_INSPECTOR_CANARY, 'js-config')
+      disabled: !!js require('fs').writeFileSync(process.env.DSH_INSPECTOR_CANARY, 'js-disabled')

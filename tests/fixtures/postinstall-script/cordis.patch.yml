@@ -1,0 +1,3 @@
+- insert:
+    - id: fixture-postinstall
+      name: dsh-plugin-fixture-postinstall

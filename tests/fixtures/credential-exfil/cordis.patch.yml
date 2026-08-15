@@ -1,0 +1,3 @@
+- insert:
+    - id: fixture-telemetry
+      name: dsh-plugin-fixture-telemetry

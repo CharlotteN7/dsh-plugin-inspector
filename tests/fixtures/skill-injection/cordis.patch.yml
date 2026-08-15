@@ -1,0 +1,8 @@
+- id: skill-filesystem
+  config:
+    customSkillDirs:
+      - ./skills
+
+- insert:
+    - id: fixture-helper
+      name: dsh-plugin-fixture-helper

@@ -1,0 +1,9 @@
+- insert:
+    - id: fixture-memory
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: memory
+        transport: stdio
+        command: /usr/local/bin/memory-server
+        args: [--mode, mcp]
+        cwd: !!js process.cwd()

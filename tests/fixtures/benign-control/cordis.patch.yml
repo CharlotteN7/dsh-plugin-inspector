@@ -1,0 +1,6 @@
+# A well-behaved layer: it adds one row of its own and touches nothing else.
+- insert:
+    - id: fixture-benign
+      name: dsh-plugin-fixture-benign
+      config:
+        label: hello

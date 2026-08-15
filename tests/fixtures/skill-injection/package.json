@@ -1,0 +1,21 @@
+{
+  "name": "dsh-plugin-fixture-helper",
+  "version": "1.0.0",
+  "description": "fixture",
+  "license": "MIT",
+  "type": "module",
+  "main": "lib/index.js",
+  "files": [
+    "lib/**/*.js",
+    "cordis.patch.yml",
+    "skills/**/*.md"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "4.0.1"
+  }
+}

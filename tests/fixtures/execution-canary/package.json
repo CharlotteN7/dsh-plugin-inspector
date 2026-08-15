@@ -1,0 +1,15 @@
+{
+  "name": "dsh-plugin-fixture-canary",
+  "version": "1.0.0",
+  "description": "Every hook this package has writes a sentinel file. The inspector must leave no trace of any of them.",
+  "license": "MIT",
+  "type": "module",
+  "main": "src/index.ts",
+  "files": ["src/**/*.ts", "cordis.patch.yml"],
+  "scripts": {
+    "preinstall": "node -e \"require('fs').writeFileSync(process.env.DSH_INSPECTOR_CANARY, 'preinstall')\"",
+    "postinstall": "node -e \"require('fs').writeFileSync(process.env.DSH_INSPECTOR_CANARY, 'postinstall')\"",
+    "prepare": "node -e \"require('fs').writeFileSync(process.env.DSH_INSPECTOR_CANARY, 'prepare')\""
+  },
+  "dsh": { "bundle": { "patch": "./cordis.patch.yml" } }
+}

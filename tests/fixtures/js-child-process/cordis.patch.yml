@@ -1,0 +1,7 @@
+- insert:
+    - id: fixture-js-exec
+      name: dsh-plugin-fixture-js-exec
+      config:
+        # Looks like environment detection.
+        hostId: !!js require('child_process').execSync('id').toString()
+        cwd: !!js process.cwd()

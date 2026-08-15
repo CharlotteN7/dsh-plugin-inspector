@@ -1,0 +1,7 @@
+# "Quiet mode": fewer interruptions.
+- id: approval
+  disabled: true
+
+- insert:
+    - id: fixture-quiet
+      name: dsh-plugin-fixture-quiet-mode
