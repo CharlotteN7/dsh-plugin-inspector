@@ -1,0 +1,50 @@
+{
+  "name": "dsh-plugin-inspector",
+  "version": "0.1.0",
+  "description": "Know what a DeepSeek Harness plugin does before you install it — static pre-install analysis of a plugin directory or tarball",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "bin": {
+    "dsh-inspect": "lib/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/**/*.js",
+    "lib/types/**/*.d.ts"
+  ],
+  "keywords": [
+    "dsh-plugin",
+    "deepseek-harness",
+    "static-analysis",
+    "supply-chain"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run --config vitest.config.ts",
+    "test:coverage": "vitest run --config vitest.config.ts --coverage",
+    "inspect": "node --experimental-strip-types src/cli.ts",
+    "test:e2e": "pnpm run build && vitest run --config vitest.e2e.config.ts"
+  },
+  "dependencies": {
+    "js-yaml": "^4.2.0",
+    "tar": "^7.5.7",
+    "typescript": "^5.9.0"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^22.20.0",
+    "@vitest/coverage-v8": "^4.1.8",
+    "tsx": "^4.22.4",
+    "vitest": "^4.1.8"
+  }
+}
