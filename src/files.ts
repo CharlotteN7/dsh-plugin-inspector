@@ -26,7 +26,7 @@ export function isSourceFile(path: string): boolean {
 /**
  * Whether a path is markdown that can reach the model verbatim.
  *
- * The reach is conditional and PLAN.md §6.1 says so: a `SKILL.md` inside an npm
+ * The reach is conditional: a `SKILL.md` inside an npm
  * package is only discovered when the plugin registers it through
  * `ctx.skills`, when a patch row redirects a skill root into the package, or
  * when something copies it into the user's workspace. This predicate answers
