@@ -44,6 +44,7 @@
     "test": "vitest run --config vitest.config.ts",
     "test:coverage": "vitest run --config vitest.config.ts --coverage",
     "inspect": "node --experimental-strip-types src/cli.ts",
+    "sweep": "node --experimental-strip-types scripts/ecosystem-sweep.ts",
     "test:e2e": "pnpm run build && vitest run --config vitest.e2e.config.ts"
   },
   "dependencies": {

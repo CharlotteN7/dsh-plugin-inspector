@@ -7,12 +7,16 @@
  * of npm still looks quiet on it. This script scans published packages instead,
  * and prints the distribution that decides whether the tool can be a gate.
  *
- * Two modes:
- *
  * ```sh
  * node --experimental-strip-types scripts/ecosystem-sweep.ts --discover --size 40
- * node --experimental-strip-types scripts/ecosystem-sweep.ts [--out <file>]
+ * node --experimental-strip-types scripts/ecosystem-sweep.ts --pin
+ * node --experimental-strip-types scripts/ecosystem-sweep.ts [--out <file>] [--record] [--check]
  * ```
+ *
+ * `--record` writes the measurement to `tests/ecosystem-baseline.json`, the
+ * number the README quotes. `--check` takes a fresh measurement and exits
+ * non-zero if it is worse than the recorded one, which is how a change that
+ * regresses calibration fails rather than ships.
  *
  * `--discover` rewrites the corpus from the most-starred repositories carrying
  * the ecosystem's topic and pins every package to the version it resolved to;
@@ -35,6 +39,19 @@ import { DEFAULT_REGISTRY } from '../src/registry.ts'
 
 /** The checked-in corpus, pinned so two runs read the same bytes. */
 const CORPUS = fileURLToPath(new URL('./ecosystem-corpus.json', import.meta.url))
+
+/** The checked-in measurement, which `--check` holds a fresh run against. */
+const BASELINE = fileURLToPath(new URL('../tests/ecosystem-baseline.json', import.meta.url))
+
+/**
+ * The largest share of the corpus one check may reach `critical` on.
+ *
+ * A `critical` that fires on more than a few percent of legitimate published
+ * packages is not describing an exceptional package; it is describing the
+ * ecosystem, and it buries the findings that are exceptional. Ten percent is
+ * already generous — the measured worst is one package in forty.
+ */
+const MAX_CRITICAL_SHARE = 0.1
 
 /** GitHub's search endpoint, which ranks the topic by stars. */
 const GITHUB_SEARCH = 'https://api.github.com/search/repositories'
@@ -105,6 +122,8 @@ interface Baseline {
    * common on legitimate packages is not a severity.
    */
   readonly checks: Readonly<Record<string, CheckStats>>
+  /** The calibration bar this measurement was taken against. */
+  readonly bar: { readonly maxCriticalShareOfCorpus: number }
   readonly packages: readonly PackageResult[]
 }
 
@@ -312,8 +331,39 @@ function summarise(corpus: Corpus, results: readonly PackageResult[]): Baseline 
     withHighOrCritical: scanned.filter(result => result.severities.critical + result.severities.high > 0).length,
     medianFindingsPerPackage: median(scanned.map(result => result.findings)),
     checks: Object.fromEntries(Object.entries(checks).sort(([a], [b]) => a.localeCompare(b, 'en', { numeric: true }))),
+    bar: { maxCriticalShareOfCorpus: MAX_CRITICAL_SHARE },
     packages: results,
   }
+}
+
+/**
+ * Compare a fresh measurement against the checked-in one.
+ *
+ * Only regressions fail. An improvement is reported and the baseline is left
+ * alone, because moving it is a deliberate act — the numbers in the README are
+ * about the recorded measurement, and rewriting it silently would make the
+ * README describe nothing.
+ * @param fresh - the measurement just taken.
+ * @param recorded - the checked-in baseline.
+ * @returns one line per regression; empty when calibration held.
+ */
+function regressions(fresh: Baseline, recorded: Baseline): string[] {
+  const failures: string[] = []
+  const worse = (what: string, now: number, before: number): void => {
+    if (now > before) failures.push(`${what}: ${before} -> ${now}`)
+  }
+  worse('findings', fresh.findings, recorded.findings)
+  worse('critical', fresh.severities.critical, recorded.severities.critical)
+  worse('high', fresh.severities.high, recorded.severities.high)
+  worse('packages carrying a high or critical', fresh.withHighOrCritical, recorded.withHighOrCritical)
+  for (const [check, stats] of Object.entries(fresh.checks)) {
+    const share = stats.worst.critical / Math.max(fresh.scanned, 1)
+    if (share > MAX_CRITICAL_SHARE) {
+      failures.push(`${check} is critical on ${Math.round(share * 100)}% of the corpus, `
+        + `over the ${Math.round(MAX_CRITICAL_SHARE * 100)}% bar`)
+    }
+  }
+  return failures
 }
 
 /**
@@ -404,6 +454,21 @@ async function main(argv: readonly string[]): Promise<void> {
     if (out === undefined) throw new Error('--out needs a path')
     writeFileSync(out, `${JSON.stringify(baseline, null, 2)}\n`)
     process.stderr.write(`wrote ${out}\n`)
+  }
+  if (argv.includes('--record')) {
+    writeFileSync(BASELINE, `${JSON.stringify(baseline, null, 2)}\n`)
+    process.stderr.write(`recorded ${BASELINE}\n`)
+  }
+  if (argv.includes('--check')) {
+    const recorded = JSON.parse(readFileSync(BASELINE, 'utf8')) as Baseline
+    const failures = regressions(baseline, recorded)
+    if (failures.length === 0) {
+      process.stdout.write(`calibration held against ${recorded.measuredOn}\n`)
+      return
+    }
+    process.stdout.write(`calibration regressed against ${recorded.measuredOn}:\n`)
+    for (const failure of failures) process.stdout.write(`  ${failure}\n`)
+    process.exitCode = 1
   }
 }
 

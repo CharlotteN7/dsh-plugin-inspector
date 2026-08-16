@@ -1,0 +1,48 @@
+name: Ecosystem calibration
+
+# Deliberately not part of CI. Every other workflow in this repository runs
+# without a network, which is a property worth keeping: it is what lets the unit
+# suite claim that analysing a package touches nothing outside the process. This
+# one fetches forty published packages from the registry, so it runs on its own
+# schedule and on request.
+#
+# It fails when a fresh sweep is worse than `tests/ecosystem-baseline.json` —
+# the measurement the README quotes. Calibration is the property the 0.2 release
+# exists to fix, and a change that regresses it should fail rather than ship.
+on:
+  schedule:
+    # Weekly. The corpus is pinned by version, so a change here is this tool's
+    # doing, not the ecosystem's.
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: true
+
+jobs:
+  sweep:
+    name: sweep the pinned corpus
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: corepack enable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.19.0'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: Sweep and compare against the recorded baseline
+        run: node --experimental-strip-types scripts/ecosystem-sweep.ts --check --out sweep.json
+
+      - name: Keep the measurement
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ecosystem-sweep
+          path: sweep.json
+          if-no-files-found: ignore

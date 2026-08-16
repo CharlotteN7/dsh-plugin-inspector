@@ -1,0 +1,1297 @@
+{
+  "tool": "0.1.0",
+  "measuredOn": "2026-08-16",
+  "sample": "the 40 most-starred GitHub repositories tagged `dsh-plugin` that publish a resolvable npm package, as selected in August 2026 — the sample the 0.2 release was scoped against",
+  "corpusSize": 40,
+  "scanned": 40,
+  "failed": 0,
+  "findings": 295,
+  "severities": {
+    "critical": 3,
+    "high": 80,
+    "medium": 152,
+    "low": 60
+  },
+  "cleanPackages": 0,
+  "withHighOrCritical": 21,
+  "medianFindingsPerPackage": 5.5,
+  "checks": {
+    "A1": {
+      "findings": 5,
+      "packages": 5,
+      "worst": {
+        "critical": 0,
+        "high": 0,
+        "medium": 5,
+        "low": 0
+      }
+    },
+    "A2": {
+      "findings": 3,
+      "packages": 1,
+      "worst": {
+        "critical": 1,
+        "high": 0,
+        "medium": 0,
+        "low": 0
+      }
+    },
+    "A3": {
+      "findings": 25,
+      "packages": 2,
+      "worst": {
+        "critical": 0,
+        "high": 2,
+        "medium": 0,
+        "low": 0
+      }
+    },
+    "A5": {
+      "findings": 8,
+      "packages": 3,
+      "worst": {
+        "critical": 0,
+        "high": 1,
+        "medium": 2,
+        "low": 0
+      }
+    },
+    "A6": {
+      "findings": 3,
+      "packages": 3,
+      "worst": {
+        "critical": 0,
+        "high": 0,
+        "medium": 0,
+        "low": 3
+      }
+    },
+    "A12": {
+      "findings": 7,
+      "packages": 7,
+      "worst": {
+        "critical": 0,
+        "high": 0,
+        "medium": 0,
+        "low": 7
+      }
+    },
+    "A21": {
+      "findings": 6,
+      "packages": 1,
+      "worst": {
+        "critical": 0,
+        "high": 1,
+        "medium": 0,
+        "low": 0
+      }
+    },
+    "A22": {
+      "findings": 23,
+      "packages": 9,
+      "worst": {
+        "critical": 0,
+        "high": 0,
+        "medium": 0,
+        "low": 9
+      }
+    },
+    "B5": {
+      "findings": 5,
+      "packages": 4,
+      "worst": {
+        "critical": 0,
+        "high": 4,
+        "medium": 0,
+        "low": 0
+      }
+    },
+    "B6": {
+      "findings": 15,
+      "packages": 8,
+      "worst": {
+        "critical": 0,
+        "high": 0,
+        "medium": 8,
+        "low": 0
+      }
+    },
+    "B7": {
+      "findings": 45,
+      "packages": 27,
+      "worst": {
+        "critical": 0,
+        "high": 0,
+        "medium": 27,
+        "low": 0
+      }
+    },
+    "B8": {
+      "findings": 7,
+      "packages": 7,
+      "worst": {
+        "critical": 0,
+        "high": 7,
+        "medium": 0,
+        "low": 0
+      }
+    },
+    "B9": {
+      "findings": 23,
+      "packages": 20,
+      "worst": {
+        "critical": 0,
+        "high": 6,
+        "medium": 14,
+        "low": 0
+      }
+    },
+    "B10": {
+      "findings": 2,
+      "packages": 2,
+      "worst": {
+        "critical": 0,
+        "high": 2,
+        "medium": 0,
+        "low": 0
+      }
+    },
+    "B11": {
+      "findings": 5,
+      "packages": 5,
+      "worst": {
+        "critical": 0,
+        "high": 5,
+        "medium": 0,
+        "low": 0
+      }
+    },
+    "B12": {
+      "findings": 2,
+      "packages": 2,
+      "worst": {
+        "critical": 0,
+        "high": 2,
+        "medium": 0,
+        "low": 0
+      }
+    },
+    "B13": {
+      "findings": 53,
+      "packages": 32,
+      "worst": {
+        "critical": 0,
+        "high": 0,
+        "medium": 32,
+        "low": 0
+      }
+    },
+    "C1": {
+      "findings": 2,
+      "packages": 2,
+      "worst": {
+        "critical": 0,
+        "high": 0,
+        "medium": 2,
+        "low": 0
+      }
+    },
+    "C2": {
+      "findings": 17,
+      "packages": 13,
+      "worst": {
+        "critical": 0,
+        "high": 13,
+        "medium": 0,
+        "low": 0
+      }
+    },
+    "C3": {
+      "findings": 26,
+      "packages": 26,
+      "worst": {
+        "critical": 0,
+        "high": 0,
+        "medium": 0,
+        "low": 26
+      }
+    },
+    "C4": {
+      "findings": 13,
+      "packages": 12,
+      "worst": {
+        "critical": 0,
+        "high": 0,
+        "medium": 12,
+        "low": 0
+      }
+    }
+  },
+  "bar": {
+    "maxCriticalShareOfCorpus": 0.1
+  },
+  "packages": [
+    {
+      "name": "@vectorize-io/hindsight-coding-agents",
+      "version": "0.3.4",
+      "stars": 20024,
+      "findings": 22,
+      "severities": {
+        "critical": 0,
+        "high": 2,
+        "medium": 3,
+        "low": 17
+      },
+      "checks": {
+        "A12": 1,
+        "A22": 15,
+        "B7": 1,
+        "B9": 1,
+        "B12": 1,
+        "B13": 1,
+        "C2": 1,
+        "C3": 1
+      },
+      "checkSeverities": {
+        "A12": "low",
+        "A22": "low",
+        "B7": "medium",
+        "B9": "medium",
+        "B12": "high",
+        "B13": "medium",
+        "C2": "high",
+        "C3": "low"
+      },
+      "degraded": true
+    },
+    {
+      "name": "@struktoai/mirage-dsh",
+      "version": "0.0.1",
+      "stars": 3458,
+      "findings": 6,
+      "severities": {
+        "critical": 3,
+        "high": 2,
+        "medium": 0,
+        "low": 1
+      },
+      "checks": {
+        "A2": 3,
+        "A3": 2,
+        "C3": 1
+      },
+      "checkSeverities": {
+        "A2": "critical",
+        "A3": "high",
+        "C3": "low"
+      },
+      "degraded": false
+    },
+    {
+      "name": "@linxin666/dsh-web-ui-all",
+      "version": "0.1.18",
+      "stars": 3198,
+      "findings": 1,
+      "severities": {
+        "critical": 0,
+        "high": 0,
+        "medium": 0,
+        "low": 1
+      },
+      "checks": {
+        "C3": 1
+      },
+      "checkSeverities": {
+        "C3": "low"
+      },
+      "degraded": false
+    },
+    {
+      "name": "@liustack/modlens",
+      "version": "3.17.3",
+      "stars": 2185,
+      "findings": 14,
+      "severities": {
+        "critical": 0,
+        "high": 4,
+        "medium": 7,
+        "low": 3
+      },
+      "checks": {
+        "A12": 1,
+        "A22": 1,
+        "B6": 1,
+        "B7": 3,
+        "B8": 1,
+        "B9": 2,
+        "B13": 3,
+        "C2": 1,
+        "C3": 1
+      },
+      "checkSeverities": {
+        "A12": "low",
+        "A22": "low",
+        "B6": "medium",
+        "B7": "medium",
+        "B8": "high",
+        "B9": "high",
+        "B13": "medium",
+        "C2": "high",
+        "C3": "low"
+      },
+      "degraded": true
+    },
+    {
+      "name": "dsh-better-sidebar",
+      "version": "0.12.2",
+      "stars": 1511,
+      "findings": 11,
+      "severities": {
+        "critical": 0,
+        "high": 3,
+        "medium": 8,
+        "low": 0
+      },
+      "checks": {
+        "A1": 1,
+        "B7": 4,
+        "B9": 1,
+        "B11": 1,
+        "B13": 2,
+        "C2": 2
+      },
+      "checkSeverities": {
+        "A1": "medium",
+        "B7": "medium",
+        "B9": "medium",
+        "B11": "high",
+        "B13": "medium",
+        "C2": "high"
+      },
+      "degraded": true
+    },
+    {
+      "name": "@deepseek-harness-tui/dsh-tui",
+      "version": "0.7.2",
+      "stars": 1454,
+      "findings": 49,
+      "severities": {
+        "critical": 0,
+        "high": 32,
+        "medium": 13,
+        "low": 4
+      },
+      "checks": {
+        "A3": 23,
+        "A5": 6,
+        "A6": 1,
+        "A12": 1,
+        "A22": 1,
+        "B5": 1,
+        "B6": 6,
+        "B7": 1,
+        "B8": 1,
+        "B9": 1,
+        "B11": 1,
+        "B13": 3,
+        "C1": 1,
+        "C2": 1,
+        "C3": 1
+      },
+      "checkSeverities": {
+        "A3": "high",
+        "A5": "high",
+        "A6": "low",
+        "A12": "low",
+        "A22": "low",
+        "B5": "high",
+        "B6": "medium",
+        "B7": "medium",
+        "B8": "high",
+        "B9": "high",
+        "B11": "high",
+        "B13": "medium",
+        "C1": "medium",
+        "C2": "high",
+        "C3": "low"
+      },
+      "degraded": true
+    },
+    {
+      "name": "@anionex/dsh-vision-toolkit",
+      "version": "0.1.10",
+      "stars": 485,
+      "findings": 10,
+      "severities": {
+        "critical": 0,
+        "high": 4,
+        "medium": 6,
+        "low": 0
+      },
+      "checks": {
+        "B6": 1,
+        "B7": 2,
+        "B8": 1,
+        "B10": 1,
+        "B13": 2,
+        "C2": 2,
+        "C4": 1
+      },
+      "checkSeverities": {
+        "B6": "medium",
+        "B7": "medium",
+        "B8": "high",
+        "B10": "high",
+        "B13": "medium",
+        "C2": "high",
+        "C4": "medium"
+      },
+      "degraded": true
+    },
+    {
+      "name": "dshmarket",
+      "version": "1.9.0",
+      "stars": 450,
+      "findings": 9,
+      "severities": {
+        "critical": 0,
+        "high": 2,
+        "medium": 7,
+        "low": 0
+      },
+      "checks": {
+        "A1": 1,
+        "B7": 4,
+        "B9": 1,
+        "B11": 1,
+        "B13": 1,
+        "C2": 1
+      },
+      "checkSeverities": {
+        "A1": "medium",
+        "B7": "medium",
+        "B9": "medium",
+        "B11": "high",
+        "B13": "medium",
+        "C2": "high"
+      },
+      "degraded": true
+    },
+    {
+      "name": "@nanmicoder/dsh-agent-teams",
+      "version": "0.1.5",
+      "stars": 385,
+      "findings": 6,
+      "severities": {
+        "critical": 0,
+        "high": 1,
+        "medium": 4,
+        "low": 1
+      },
+      "checks": {
+        "B5": 1,
+        "B7": 1,
+        "B13": 2,
+        "C3": 1,
+        "C4": 1
+      },
+      "checkSeverities": {
+        "B5": "high",
+        "B7": "medium",
+        "B13": "medium",
+        "C3": "low",
+        "C4": "medium"
+      },
+      "degraded": true
+    },
+    {
+      "name": "dsh-vision-router",
+      "version": "1.4.0",
+      "stars": 304,
+      "findings": 10,
+      "severities": {
+        "critical": 0,
+        "high": 0,
+        "medium": 8,
+        "low": 2
+      },
+      "checks": {
+        "A5": 1,
+        "A22": 1,
+        "B7": 2,
+        "B9": 2,
+        "B13": 2,
+        "C3": 1,
+        "C4": 1
+      },
+      "checkSeverities": {
+        "A5": "medium",
+        "A22": "low",
+        "B7": "medium",
+        "B9": "medium",
+        "B13": "medium",
+        "C3": "low",
+        "C4": "medium"
+      },
+      "degraded": true
+    },
+    {
+      "name": "@huiliyi37/dsh-tianshu-tui",
+      "version": "0.1.2-rc.10",
+      "stars": 184,
+      "findings": 9,
+      "severities": {
+        "critical": 0,
+        "high": 3,
+        "medium": 5,
+        "low": 1
+      },
+      "checks": {
+        "B6": 2,
+        "B7": 1,
+        "B8": 1,
+        "B9": 1,
+        "B13": 2,
+        "C2": 1,
+        "C3": 1
+      },
+      "checkSeverities": {
+        "B6": "medium",
+        "B7": "medium",
+        "B8": "high",
+        "B9": "high",
+        "B13": "medium",
+        "C2": "high",
+        "C3": "low"
+      },
+      "degraded": true
+    },
+    {
+      "name": "dsh-engramory",
+      "version": "0.2.0",
+      "stars": 154,
+      "findings": 1,
+      "severities": {
+        "critical": 0,
+        "high": 0,
+        "medium": 1,
+        "low": 0
+      },
+      "checks": {
+        "B13": 1
+      },
+      "checkSeverities": {
+        "B13": "medium"
+      },
+      "degraded": false
+    },
+    {
+      "name": "@liustack/modsearch",
+      "version": "5.4.2",
+      "stars": 107,
+      "findings": 11,
+      "severities": {
+        "critical": 0,
+        "high": 0,
+        "medium": 8,
+        "low": 3
+      },
+      "checks": {
+        "A5": 1,
+        "A12": 1,
+        "A22": 1,
+        "B7": 3,
+        "B9": 2,
+        "B13": 2,
+        "C3": 1
+      },
+      "checkSeverities": {
+        "A5": "medium",
+        "A12": "low",
+        "A22": "low",
+        "B7": "medium",
+        "B9": "medium",
+        "B13": "medium",
+        "C3": "low"
+      },
+      "degraded": false
+    },
+    {
+      "name": "@zseven-w/dsh-openpencil",
+      "version": "0.1.0-rc.1",
+      "stars": 96,
+      "findings": 14,
+      "severities": {
+        "critical": 0,
+        "high": 3,
+        "medium": 10,
+        "low": 1
+      },
+      "checks": {
+        "B7": 4,
+        "B9": 1,
+        "B10": 1,
+        "B13": 3,
+        "C1": 1,
+        "C2": 2,
+        "C4": 2
+      },
+      "checkSeverities": {
+        "B7": "medium",
+        "B9": "medium",
+        "B10": "high",
+        "B13": "medium",
+        "C1": "medium",
+        "C2": "high",
+        "C4": "medium"
+      },
+      "degraded": true
+    },
+    {
+      "name": "argo-search",
+      "version": "1.0.1",
+      "stars": 89,
+      "findings": 4,
+      "severities": {
+        "critical": 0,
+        "high": 0,
+        "medium": 2,
+        "low": 2
+      },
+      "checks": {
+        "A12": 1,
+        "A22": 1,
+        "B9": 1,
+        "B13": 1
+      },
+      "checkSeverities": {
+        "A12": "low",
+        "A22": "low",
+        "B9": "medium",
+        "B13": "medium"
+      },
+      "degraded": false
+    },
+    {
+      "name": "@anionex/dsh-turn-rewind",
+      "version": "0.1.0",
+      "stars": 62,
+      "findings": 5,
+      "severities": {
+        "critical": 0,
+        "high": 0,
+        "medium": 5,
+        "low": 0
+      },
+      "checks": {
+        "B7": 1,
+        "B9": 1,
+        "B13": 2,
+        "C4": 1
+      },
+      "checkSeverities": {
+        "B7": "medium",
+        "B9": "medium",
+        "B13": "medium",
+        "C4": "medium"
+      },
+      "degraded": true
+    },
+    {
+      "name": "@sanqi-normal/dsh-webui-market-plugin",
+      "version": "0.5.2",
+      "stars": 61,
+      "findings": 5,
+      "severities": {
+        "critical": 0,
+        "high": 1,
+        "medium": 3,
+        "low": 1
+      },
+      "checks": {
+        "B7": 1,
+        "B9": 1,
+        "B11": 1,
+        "B13": 1,
+        "C3": 1
+      },
+      "checkSeverities": {
+        "B7": "medium",
+        "B9": "medium",
+        "B11": "high",
+        "B13": "medium",
+        "C3": "low"
+      },
+      "degraded": false
+    },
+    {
+      "name": "dsh-pet",
+      "version": "0.1.3",
+      "stars": 51,
+      "findings": 4,
+      "severities": {
+        "critical": 0,
+        "high": 0,
+        "medium": 3,
+        "low": 1
+      },
+      "checks": {
+        "B13": 2,
+        "C3": 1,
+        "C4": 1
+      },
+      "checkSeverities": {
+        "B13": "medium",
+        "C3": "low",
+        "C4": "medium"
+      },
+      "degraded": true
+    },
+    {
+      "name": "dsh-context",
+      "version": "0.9.0",
+      "stars": 48,
+      "findings": 2,
+      "severities": {
+        "critical": 0,
+        "high": 0,
+        "medium": 1,
+        "low": 1
+      },
+      "checks": {
+        "A1": 1,
+        "C3": 1
+      },
+      "checkSeverities": {
+        "A1": "medium",
+        "C3": "low"
+      },
+      "degraded": false
+    },
+    {
+      "name": "dsh-mnemon",
+      "version": "0.1.6",
+      "stars": 45,
+      "findings": 5,
+      "severities": {
+        "critical": 0,
+        "high": 1,
+        "medium": 3,
+        "low": 1
+      },
+      "checks": {
+        "B7": 1,
+        "B9": 1,
+        "B13": 1,
+        "C2": 1,
+        "C3": 1
+      },
+      "checkSeverities": {
+        "B7": "medium",
+        "B9": "medium",
+        "B13": "medium",
+        "C2": "high",
+        "C3": "low"
+      },
+      "degraded": true
+    },
+    {
+      "name": "dsh-chat-import",
+      "version": "0.5.1",
+      "stars": 43,
+      "findings": 7,
+      "severities": {
+        "critical": 0,
+        "high": 2,
+        "medium": 4,
+        "low": 1
+      },
+      "checks": {
+        "B6": 1,
+        "B7": 1,
+        "B8": 1,
+        "B9": 1,
+        "B13": 2,
+        "C3": 1
+      },
+      "checkSeverities": {
+        "B6": "medium",
+        "B7": "medium",
+        "B8": "high",
+        "B9": "high",
+        "B13": "medium",
+        "C3": "low"
+      },
+      "degraded": false
+    },
+    {
+      "name": "@dsh-suite/plugin-team-board",
+      "version": "0.1.1",
+      "stars": 35,
+      "findings": 1,
+      "severities": {
+        "critical": 0,
+        "high": 0,
+        "medium": 0,
+        "low": 1
+      },
+      "checks": {
+        "C3": 1
+      },
+      "checkSeverities": {
+        "C3": "low"
+      },
+      "degraded": false
+    },
+    {
+      "name": "@dsh-suite/plugin-manager",
+      "version": "0.8.1",
+      "stars": 35,
+      "findings": 5,
+      "severities": {
+        "critical": 0,
+        "high": 1,
+        "medium": 3,
+        "low": 1
+      },
+      "checks": {
+        "B7": 1,
+        "B9": 1,
+        "B11": 1,
+        "B13": 1,
+        "C3": 1
+      },
+      "checkSeverities": {
+        "B7": "medium",
+        "B9": "medium",
+        "B11": "high",
+        "B13": "medium",
+        "C3": "low"
+      },
+      "degraded": false
+    },
+    {
+      "name": "dsh-find-plugin",
+      "version": "0.3.6",
+      "stars": 33,
+      "findings": 2,
+      "severities": {
+        "critical": 0,
+        "high": 0,
+        "medium": 2,
+        "low": 0
+      },
+      "checks": {
+        "B7": 1,
+        "B13": 1
+      },
+      "checkSeverities": {
+        "B7": "medium",
+        "B13": "medium"
+      },
+      "degraded": false
+    },
+    {
+      "name": "@yejiming/dsh-data-agent",
+      "version": "0.0.6",
+      "stars": 30,
+      "findings": 3,
+      "severities": {
+        "critical": 0,
+        "high": 0,
+        "medium": 2,
+        "low": 1
+      },
+      "checks": {
+        "B7": 1,
+        "B13": 1,
+        "C3": 1
+      },
+      "checkSeverities": {
+        "B7": "medium",
+        "B13": "medium",
+        "C3": "low"
+      },
+      "degraded": false
+    },
+    {
+      "name": "dsh-notifier",
+      "version": "0.6.5",
+      "stars": 28,
+      "findings": 11,
+      "severities": {
+        "critical": 0,
+        "high": 5,
+        "medium": 6,
+        "low": 0
+      },
+      "checks": {
+        "B6": 2,
+        "B7": 3,
+        "B8": 1,
+        "B9": 1,
+        "B12": 1,
+        "B13": 1,
+        "C2": 2
+      },
+      "checkSeverities": {
+        "B6": "medium",
+        "B7": "medium",
+        "B8": "high",
+        "B9": "high",
+        "B12": "high",
+        "B13": "medium",
+        "C2": "high"
+      },
+      "degraded": true
+    },
+    {
+      "name": "dsh-dream-skin",
+      "version": "0.2.5",
+      "stars": 26,
+      "findings": 2,
+      "severities": {
+        "critical": 0,
+        "high": 1,
+        "medium": 0,
+        "low": 1
+      },
+      "checks": {
+        "C2": 1,
+        "C3": 1
+      },
+      "checkSeverities": {
+        "C2": "high",
+        "C3": "low"
+      },
+      "degraded": true
+    },
+    {
+      "name": "dsh-message-edit",
+      "version": "0.2.3",
+      "stars": 24,
+      "findings": 1,
+      "severities": {
+        "critical": 0,
+        "high": 0,
+        "medium": 1,
+        "low": 0
+      },
+      "checks": {
+        "B7": 1
+      },
+      "checkSeverities": {
+        "B7": "medium"
+      },
+      "degraded": false
+    },
+    {
+      "name": "dsh-lark-channel",
+      "version": "0.0.6",
+      "stars": 23,
+      "findings": 8,
+      "severities": {
+        "critical": 0,
+        "high": 2,
+        "medium": 5,
+        "low": 1
+      },
+      "checks": {
+        "A1": 1,
+        "A22": 1,
+        "B6": 1,
+        "B7": 1,
+        "B8": 1,
+        "B9": 1,
+        "B13": 2
+      },
+      "checkSeverities": {
+        "A1": "medium",
+        "A22": "low",
+        "B6": "medium",
+        "B7": "medium",
+        "B8": "high",
+        "B9": "high",
+        "B13": "medium"
+      },
+      "degraded": false
+    },
+    {
+      "name": "@mars-sea/dsh-commandcode-provider",
+      "version": "0.2.2",
+      "stars": 21,
+      "findings": 5,
+      "severities": {
+        "critical": 0,
+        "high": 0,
+        "medium": 4,
+        "low": 1
+      },
+      "checks": {
+        "A1": 1,
+        "B6": 1,
+        "B13": 2,
+        "C3": 1
+      },
+      "checkSeverities": {
+        "A1": "medium",
+        "B6": "medium",
+        "B13": "medium",
+        "C3": "low"
+      },
+      "degraded": false
+    },
+    {
+      "name": "@anionex/dsh-computer-use",
+      "version": "0.1.0",
+      "stars": 20,
+      "findings": 6,
+      "severities": {
+        "critical": 0,
+        "high": 0,
+        "medium": 6,
+        "low": 0
+      },
+      "checks": {
+        "B7": 2,
+        "B9": 1,
+        "B13": 2,
+        "C4": 1
+      },
+      "checkSeverities": {
+        "B7": "medium",
+        "B9": "medium",
+        "B13": "medium",
+        "C4": "medium"
+      },
+      "degraded": true
+    },
+    {
+      "name": "deepseek-harness-wallet",
+      "version": "0.1.3",
+      "stars": 19,
+      "findings": 3,
+      "severities": {
+        "critical": 0,
+        "high": 0,
+        "medium": 2,
+        "low": 1
+      },
+      "checks": {
+        "B7": 1,
+        "B13": 1,
+        "C3": 1
+      },
+      "checkSeverities": {
+        "B7": "medium",
+        "B13": "medium",
+        "C3": "low"
+      },
+      "degraded": false
+    },
+    {
+      "name": "dsh-share",
+      "version": "0.3.0",
+      "stars": 19,
+      "findings": 3,
+      "severities": {
+        "critical": 0,
+        "high": 0,
+        "medium": 2,
+        "low": 1
+      },
+      "checks": {
+        "B7": 1,
+        "C3": 1,
+        "C4": 1
+      },
+      "checkSeverities": {
+        "B7": "medium",
+        "C3": "low",
+        "C4": "medium"
+      },
+      "degraded": true
+    },
+    {
+      "name": "dsh-emoji",
+      "version": "0.2.1",
+      "stars": 19,
+      "findings": 6,
+      "severities": {
+        "critical": 0,
+        "high": 2,
+        "medium": 3,
+        "low": 1
+      },
+      "checks": {
+        "B5": 1,
+        "B13": 2,
+        "C2": 1,
+        "C3": 1,
+        "C4": 1
+      },
+      "checkSeverities": {
+        "B5": "high",
+        "B13": "medium",
+        "C2": "high",
+        "C3": "low",
+        "C4": "medium"
+      },
+      "degraded": true
+    },
+    {
+      "name": "dsh-client-auto-continue",
+      "version": "0.6.0",
+      "stars": 18,
+      "findings": 4,
+      "severities": {
+        "critical": 0,
+        "high": 1,
+        "medium": 2,
+        "low": 1
+      },
+      "checks": {
+        "A22": 1,
+        "B13": 1,
+        "C2": 1,
+        "C4": 1
+      },
+      "checkSeverities": {
+        "A22": "low",
+        "B13": "medium",
+        "C2": "high",
+        "C4": "medium"
+      },
+      "degraded": true
+    },
+    {
+      "name": "@a9i5k4/dsh-auto-memory",
+      "version": "0.1.23",
+      "stars": 18,
+      "findings": 7,
+      "severities": {
+        "critical": 0,
+        "high": 2,
+        "medium": 4,
+        "low": 1
+      },
+      "checks": {
+        "B5": 2,
+        "B7": 1,
+        "B9": 1,
+        "B13": 2,
+        "C3": 1
+      },
+      "checkSeverities": {
+        "B5": "high",
+        "B7": "medium",
+        "B9": "medium",
+        "B13": "medium",
+        "C3": "low"
+      },
+      "degraded": false
+    },
+    {
+      "name": "@dhicoc/dsh-reverse-skill",
+      "version": "1.0.2",
+      "stars": 18,
+      "findings": 10,
+      "severities": {
+        "critical": 0,
+        "high": 6,
+        "medium": 2,
+        "low": 2
+      },
+      "checks": {
+        "A12": 1,
+        "A21": 6,
+        "B13": 1,
+        "C3": 1,
+        "C4": 1
+      },
+      "checkSeverities": {
+        "A12": "low",
+        "A21": "high",
+        "B13": "medium",
+        "C3": "low",
+        "C4": "medium"
+      },
+      "degraded": true
+    },
+    {
+      "name": "dsh-tokenledger",
+      "version": "0.1.0",
+      "stars": 17,
+      "findings": 3,
+      "severities": {
+        "critical": 0,
+        "high": 0,
+        "medium": 2,
+        "low": 1
+      },
+      "checks": {
+        "A6": 1,
+        "B7": 1,
+        "C4": 1
+      },
+      "checkSeverities": {
+        "A6": "low",
+        "B7": "medium",
+        "C4": "medium"
+      },
+      "degraded": true
+    },
+    {
+      "name": "dsh-recommend",
+      "version": "0.2.0",
+      "stars": 16,
+      "findings": 4,
+      "severities": {
+        "critical": 0,
+        "high": 0,
+        "medium": 2,
+        "low": 2
+      },
+      "checks": {
+        "A6": 1,
+        "B7": 1,
+        "B13": 1,
+        "C3": 1
+      },
+      "checkSeverities": {
+        "A6": "low",
+        "B7": "medium",
+        "B13": "medium",
+        "C3": "low"
+      },
+      "degraded": false
+    },
+    {
+      "name": "dsh-blender",
+      "version": "0.2.1",
+      "stars": 15,
+      "findings": 6,
+      "severities": {
+        "critical": 0,
+        "high": 0,
+        "medium": 3,
+        "low": 3
+      },
+      "checks": {
+        "A12": 1,
+        "A22": 1,
+        "B9": 1,
+        "B13": 2,
+        "C3": 1
+      },
+      "checkSeverities": {
+        "A12": "low",
+        "A22": "low",
+        "B9": "medium",
+        "B13": "medium",
+        "C3": "low"
+      },
+      "degraded": false
+    }
+  ]
+}
