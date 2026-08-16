@@ -54,7 +54,9 @@ export {
 export { globMatch, publishSet, type PublishBasis, type PublishInputs, type PublishSet } from './publish.ts'
 export { INJECTION_RULES, scanInjection, type InjectionMatch, type InjectionRule } from './injection.ts'
 export {
+  aggregateFindings,
   compareFindings,
+  MAX_EXAMPLES,
   SEVERITIES,
   SEVERITY_RANK,
   summarize,

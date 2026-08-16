@@ -314,8 +314,8 @@ transpilation, no execution**. Default confidence `high`, downgraded per §6.5.
 | B5 | System-prompt mutation — `system-prompt/assemble` listener, or `ctx.systemPrompt.{section,context,variable,tools,suppressRuntimeContext}` | high | call matching |
 | B6 | Credential read — `process.env.*(TOKEN\|KEY\|SECRET\|PASSWORD\|CREDENTIAL)*`, `~/.dsh/credentials`, `~/.npmrc`, `~/.aws`, `~/.ssh`, `ctx.credentials.*` | medium alone | identifier + literal matching |
 | B7 | Network egress — `fetch`, `node:http(s).request`, `node:net`, `WebSocket`, `undici` | medium alone | import + call matching |
-| B8 | **Exfiltration pair** — B6 ∧ B7 in the same package | **critical** | set intersection. Reported explicitly as *capability, not dataflow*: the tool cannot prove the credential value reaches the socket |
-| B9 | Direct `node:child_process` / `node:worker_threads` / `node:vm` | **critical** | import specifier. Bypasses `ctx.subprocess` and `ctx.sandbox` entirely |
+| B8 | **Exfiltration pair** — B6 ∧ B7 in the same package | high | set intersection. Reported explicitly as *capability, not dataflow*: the tool cannot prove the credential value reaches the socket. Recalibrated from critical in 0.2: it fires on 18 % of published plugins |
+| B9 | Direct `node:child_process` / `node:worker_threads` / `node:vm` | medium alone, high paired with B8's two halves | import specifier. Bypasses `ctx.subprocess` and `ctx.sandbox` entirely. Recalibrated from critical in 0.2: a bare import fires on half the published ecosystem |
 | B10 | Prompt-injection heuristics on **model-visible text only** — registered tool `description` string literals, and shipped skill/instruction files | high | imperative-override phrasing, role reassignment, exfiltration instructions, hidden-text markers. Run on *exactly* the text that reaches the model, never on ordinary source comments |
 | B11 | Nested plugin mounting — `ctx.plugin(…)`, loader manipulation | high | call matching. A layer that mounts further layers moves the analysis target |
 | B12 | Dynamic code construction — `eval`, `new Function`, `vm.runInNewContext`, `module._load` | high | call matching |
@@ -413,7 +413,7 @@ published packages.
 | `disables-approval/` | Patch row `- id: approval` / `disabled: true` | A2 critical |
 | `js-child-process/` | `!!js require('child_process').execSync('id')` inside a row `config` | A6 critical, class `module-access` |
 | `postinstall-script/` | `scripts.postinstall` | A1 high |
-| `credential-exfil/` | Source reading `process.env.DEEPSEEK_API_KEY` and calling `fetch()` | B6 + B7 + B8 critical, and B8's text says *capability, not dataflow* |
+| `credential-exfil/` | Source reading `process.env.DEEPSEEK_API_KEY` and calling `fetch()` | B6 + B7 + B8 high, and B8's text says *capability, not dataflow* |
 | `skill-injection/` | Ships `SKILL.md` containing override/exfiltration phrasing | A12 + B10 high |
 | `mcp-stdio/` | Patch inserts `@deepseek-ai/dsh-mcp-client` with `transport: stdio` and a `command` | A10 critical |
 | `patch-traversal/` | `dsh.bundle.patch` set to `../../../etc/dsh/cordis.patch.yml` | A14 critical, and the analyzer must not follow the path |
