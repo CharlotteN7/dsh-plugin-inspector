@@ -59,7 +59,10 @@ jobs:
         run: |
           set -euo pipefail
           canary="$(mktemp -d)/sentinel"
-          DSH_INSPECTOR_CANARY="$canary" node lib/cli.js tests/fixtures/execution-canary --json > /dev/null
+          # The fixture is hostile by construction, so a non-zero exit is the
+          # correct verdict and not a failure of this step. Only the sentinel
+          # decides: its absence is the guarantee under test.
+          DSH_INSPECTOR_CANARY="$canary" node lib/cli.js tests/fixtures/execution-canary --json > /dev/null || true
           if [ -e "$canary" ]; then
             echo "::error::analysed code executed during inspection; sentinel says: $(cat "$canary")"
             exit 1
