@@ -94,6 +94,10 @@ publish a resolvable npm package, each pinned to the version current that day. R
 `pnpm run sweep`; the corpus is `scripts/ecosystem-corpus.json` and the recorded measurement is
 `tests/ecosystem-baseline.json`.
 
+Both columns come from the same corpus and the same pinned versions, so the difference is this
+tool's doing and not the ecosystem's. "0.1" is the published `dsh-plugin-inspector@0.1.0`; "0.2" is
+this tree, which still reports version `0.1.0` because the release is not published yet.
+
 | | 0.1 | 0.2 |
 |---|---|---|
 | Findings | 1,420 | **295** |
