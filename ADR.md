@@ -15,10 +15,14 @@ mounts nothing, and never runs inside the harness process.
 1. A mounted plugin runs *after* the decision this tool exists to inform. The whole value is
    pre-install: "should this code be on my disk and in my process?" A mounted surface can only
    answer that once the answer no longer matters.
-2. There is no seam to gate. `runPlugin()` in `dsh/apps/cli/src/plugin.ts` is
-   `spawnSync('pnpm', args)` followed by a manifest rewrite — 158 lines, read end to end. There is
-   no event, no approval hook, and no confirmation prompt anywhere in the path. A mounted
-   inspector would have to poll or wrap the binary, which is worse than a CLI in every respect.
+2. ~~There is no seam to gate.~~ **Superseded — see §11.** `runPlugin()` in
+   `dsh/apps/cli/src/plugin.ts` is `spawnSync('pnpm', args)` followed by a manifest rewrite — 158
+   lines, read end to end. There is no event, no approval hook, and no confirmation prompt anywhere
+   *in the harness's* path. What that reading missed is that the absence of a harness seam is not
+   the absence of a seam: the `spawnSync` runs pnpm with `cwd` set to the profile directory, and
+   pnpm has a hook of its own there. The rest of this reason — that a mounted inspector would have
+   to poll or wrap the binary — still holds, and the seam that does exist is a pnpm hook rather
+   than a mounted layer, so the decision to ship a CLI is unchanged.
 3. Mounting an analyzer adds the attack surface it exists to measure. A mounted layer is an ESM
    module imported at the agent's uid with ungated top-level side effects. Putting a hostile-input
    parser — YAML, tar, arbitrary TypeScript — *inside* that process to chew on untrusted bytes
@@ -198,3 +202,107 @@ branches get tests of their own. What matters more than the number is *which* li
 the resource ceilings, the symlink and escaping-entry refusals, and every check in the catalogue
 now have a case, because those are the lines that carry the safety claims. The comment in the
 config says exactly this so the number is not mistaken for the target.
+
+---
+
+## 11. There is a seam to gate an install, and 0.2 deliberately does not use it
+
+**Correction to §1.** §1 reason 2 said there is no seam at which to gate an install. That is
+wrong, and it was wrong when it was written. The chain:
+
+- `runPlugin()` calls `spawnSync('pnpm', args, { cwd: profileDir })`
+  (`dsh/apps/cli/src/plugin.ts`). Every `dsh plugin add` is a pnpm run whose working directory is
+  the profile, which is a pnpm workspace root — the same directory whose `pnpm-workspace.yaml` the
+  harness tells the user to edit when a build is blocked.
+- pnpm 11.7.0 honours a `.pnpmfile.cjs` in that directory.
+- Its `readPackage` hook fires **async**, so a hook may await. It receives the resolved manifest,
+  including `pkg.dist.tarball`, and may therefore `fetch()` the very bytes this tool analyses.
+- **Throwing from the hook aborts the install with nothing written to `node_modules`.** Not a
+  warning after the fact — the package never lands.
+
+That is a real pre-install gate: the decision point this tool exists to inform, at the moment it
+still matters, with a refusal that actually refuses.
+
+**Decision.** 0.2 records the seam and ships nothing into it.
+
+**Why not now.** The gate is the highest-ceiling feature on the roadmap and it inherits whatever
+calibration sits underneath it. Measured on 40 published plugins, 0.1 produced 1,420 findings and
+252 criticals with no clean package; a `.pnpmfile.cjs` built on that would have refused most of the
+ecosystem on its first run. What happens next is not that users tune it — it is that they delete
+the file and never try the idea again. An install gate gets one chance to be right, because the
+failure mode of a wrong one is not a false positive, it is a broken install of a package the user
+wanted.
+
+So calibration lands first. 0.2 takes findings from 1,420 to 295 and criticals from 252 to 3, and
+`--fail-on critical` now stops 1 package in 40 rather than 40 in 40. That is the number a gate has
+to be built on, and it is the number that says whether the gate is worth building.
+
+**What the gate will have to answer, recorded now so 0.3 does not rediscover it.**
+
+- A hook that fetches every tarball adds a download to every install of every dependency, not just
+  the plugin the user named. The registry metadata is ~3 KB and already carries `hasInstallScript`,
+  `scripts` and the `dsh` key, so the cheap pre-check runs first and the tarball is fetched only for
+  packages that declare `dsh.bundle` (which is what makes a package a mounted layer at all).
+- The hook runs *before* the user has seen anything, so its refusal message is the whole user
+  interface. It has to name the finding, the file, and how to proceed anyway.
+- `.pnpmfile.cjs` is code pnpm runs in its own process. Putting this tool's hostile-input parser
+  there re-opens exactly the objection §1 reason 3 raises against mounting. The hook has to shell
+  out to the binary, not import the library.
+- A hook is repo-local configuration and therefore attacker-controlled under the workspace's own
+  trust ranking. A plugin that installs a `.pnpmfile.cjs` weakening the gate is a case the design
+  has to answer before the gate ships.
+
+---
+
+## 12. A finding is per package and carries a subject
+
+**Decision.** Checks still match one syntax site at a time, but findings sharing a `checkId` and a
+`subject` collapse into one carrying `occurrences` and up to three example sites. The subject is
+the module specifier, the row id, the seam name, or the matched rule — what the finding is *about*,
+independent of where it was seen.
+
+**Why a subject rather than the title.** Grouping by title would work by accident and break by
+accident: Tier C titles named the file they came from, so `C1` would never collapse, while any two
+checks that happened to render the same sentence would merge. Grouping by check id alone loses more
+than it saves — `node:child_process` and `node:worker_threads` are both `B9`, and no single title is
+true of both. The subject is the one field that says what the finding is about with nothing about
+where, which is exactly the grouping key. It is emitted in the JSON for the same reason: a gate that
+wants to accept `B13`/`node:fs` without accepting every `B13` needs a stable name for it.
+
+**Why not just cap the list at render time.** Because the count is information. "Imports `node:fs`
+from one file" and "from ninety files" are different facts about a package, and a renderer that
+truncates throws the second one away. The count and the examples live in the finding, so a JSON
+consumer sees them too.
+
+**Consequence.** `schemaVersion` is 2. Findings gained `subject`, `examples` and `occurrences`, and
+`target.kind` gained `registry`.
+
+---
+
+## 13. Fetching from a registry is a mode, never a fallback
+
+**Decision.** `--from-npm` fetches a packument, downloads the tarball into memory, verifies
+`dist.integrity` **before** anything parses a byte, and analyses it. It lives in `src/npm.ts` and
+`src/registry.ts`, which `src/inspect.ts` does not import.
+
+**Why the module split matters more than it looks.** "This tool does not run what it analyses" is
+the whole claim, and "it does not go to the network unless you asked it to" is now part of keeping
+that claim legible. Making the local path *unable* to reach the fetch code — rather than merely not
+calling it — turns that into something a reader can check by looking at the imports, and something
+a test can hold: the suite replaces the global `fetch` with a throwing stub and inspects a directory
+and a tarball through it.
+
+A network fetch is not execution. It writes no file, spawns nothing, and runs no lifecycle script,
+which is more than can be said for `npm pack` on a git spec. But it is a side effect the other two
+modes do not have, so it is one explicit flag per invocation, and a report records the fetch in
+`target.registry` — including the digest that matched.
+
+**Verify before parse, not after.** The order is the point. Hashing after the parser has already
+seen the bytes would prove something true about bytes that had already been acted on. `dist.shasum`
+is accepted only when a package predates `dist.integrity` entirely, and the report names `sha1` when
+that happens rather than saying "verified" and leaving it there. No digest at all is a refusal:
+"verified" would be a claim the tool cannot make.
+
+**Origin pinning.** The tarball URL must sit on the registry's own origin. This does not defend
+against a hostile registry — it publishes both the URL and the hash — but it stops one doctored
+packument on an honest registry from making the tool fetch an arbitrary URL on the user's behalf.
