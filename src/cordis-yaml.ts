@@ -18,7 +18,7 @@
 
 import yaml from 'js-yaml'
 import ts from 'typescript'
-import { STATIC_ENTRY_FIELDS } from './knowledge.ts'
+import { HARNESS_INERT_CALLS, STATIC_ENTRY_FIELDS } from './knowledge.ts'
 
 /** The inert node a `!!js` scalar becomes. Mirrors the loader's own representation. */
 export interface JsExprNode {
@@ -53,10 +53,16 @@ export const patchSchema = yaml.JSON_SCHEMA.extend(jsExprType)
 export type ExpressionClass =
   | 'literal'
   | 'inert-read'
+  | 'harness-call'
   | 'call'
   | 'mutation'
   | 'module-access'
   | 'unparseable'
+
+/** Every classification, in the order the report tallies them. */
+export const EXPRESSION_CLASSES: readonly ExpressionClass[] = [
+  'literal', 'inert-read', 'harness-call', 'call', 'mutation', 'module-access', 'unparseable',
+]
 
 /** Whether the loader ever evaluates the node at this location. */
 export type ExpressionSlot = 'config' | 'disabled' | 'inert'
@@ -93,7 +99,14 @@ export interface InsertedRow {
   readonly config: unknown
   /** Id of the group row this insert targets, or `null` for a top-level insert. */
   readonly intoGroupId: string | null
+  /** Service names the row re-maps to a fresh realm for its whole subtree. */
+  readonly isolate: readonly string[]
+  /** Service names the row interposes on for its whole subtree. */
+  readonly intercept: readonly string[]
 }
+
+/** Why a walk stopped early, or `null` when it ran to completion. */
+export type WalkLimit = 'nodes' | 'depth' | null
 
 /** One parsed patch layer. */
 export interface PatchDocument {
@@ -102,6 +115,58 @@ export interface PatchDocument {
   readonly overrides: readonly OverridePatch[]
   readonly inserts: readonly InsertedRow[]
   readonly expressions: readonly ExpressionSite[]
+  /**
+   * Which walk ceiling stopped the analysis of this layer, or `null`. Non-null
+   * means the layer was read in part, which Tier C reports.
+   */
+  readonly limit: WalkLimit
+}
+
+/** Nodes one patch layer may be walked through before the walk gives up. */
+export const MAX_WALK_NODES = 200_000
+
+/** Nesting one patch layer may reach before the walk gives up. */
+export const MAX_WALK_DEPTH = 200
+
+/**
+ * The ceilings and the identity set that make walking a patch layer terminate.
+ *
+ * YAML anchors let a 475-byte file describe a graph with 31 billion *paths* and
+ * 100 *nodes*: `*a` is not a copy, it is the same object again. js-yaml returns
+ * that graph in milliseconds; walking it as a tree does not return at all. The
+ * `WeakSet` is exact rather than heuristic — two nodes are the same node
+ * precisely when they are the same object reference, which is what an alias
+ * produces and what distinct content never does. The counters are the backstop
+ * for a document that is merely enormous rather than aliased.
+ */
+interface WalkBudget {
+  readonly visited: WeakSet<object>
+  nodes: number
+  limit: WalkLimit
+}
+
+/**
+ * Charge one node against the budget, and refuse a node already walked.
+ * @param budget - the shared budget.
+ * @param value - the node about to be walked.
+ * @param depth - the current nesting depth.
+ * @returns true when the walk may descend into this node.
+ */
+function admit(budget: WalkBudget, value: unknown, depth: number): boolean {
+  if (budget.limit !== null) return false
+  if (depth > MAX_WALK_DEPTH) {
+    budget.limit = 'depth'
+    return false
+  }
+  budget.nodes += 1
+  if (budget.nodes > MAX_WALK_NODES) {
+    budget.limit = 'nodes'
+    return false
+  }
+  if (typeof value !== 'object' || value === null) return true
+  if (budget.visited.has(value)) return false
+  budget.visited.add(value)
+  return true
 }
 
 /** Thrown when the patch file cannot be parsed as an entry list. */
@@ -140,8 +205,16 @@ export function isJsExpr(value: unknown): value is JsExprNode {
 
 /**
  * Classify what a `!!js` expression can reach, by parsing it — never running
- * it. Precedence is by reach: module access beats mutation beats call beats
- * read, so an expression is reported at its most capable form.
+ * it. Precedence is by reach: module access beats mutation beats an unknown
+ * call beats a known-inert call beats a read, so an expression is reported at
+ * its most capable form.
+ *
+ * The grading is by reach, not by syntactic form. `dshHomePath('sessions')` is
+ * a `CallExpression` and so is `steal()`, but the first is a helper the harness
+ * itself provides to these expressions and uses in its own shipped bundle,
+ * while the second names something this tool cannot resolve. Grading both as
+ * the same thing puts the harness's own configuration at the same severity as
+ * an attack and teaches the reader to skip the class.
  * @param expression - the raw expression text.
  * @returns the classification and, when it does not parse, the diagnostic.
  */
@@ -155,6 +228,7 @@ export function classifyExpression(expression: string): { class: ExpressionClass
   }
   const source = ts.createSourceFile('expr.ts', `(${expression})`, ts.ScriptTarget.ESNext, false, ts.ScriptKind.TS)
   let sawCall = false
+  let sawHarnessCall = false
   let sawMutation = false
   let sawModuleAccess = false
   let sawIdentifier = false
@@ -167,7 +241,10 @@ export function classifyExpression(expression: string): { class: ExpressionClass
       if (node.operator === ts.SyntaxKind.PlusPlusToken || node.operator === ts.SyntaxKind.MinusMinusToken) sawMutation = true
     }
     if (ts.isDeleteExpression(node)) sawMutation = true
-    if (ts.isCallExpression(node) && !isInertCall(node)) sawCall = true
+    if (ts.isCallExpression(node)) {
+      if (isInertCall(node)) sawHarnessCall = true
+      else sawCall = true
+    }
     if (ts.isNewExpression(node)) sawCall = true
     if (ts.isIdentifier(node)) sawIdentifier = true
     ts.forEachChild(node, visit)
@@ -176,6 +253,7 @@ export function classifyExpression(expression: string): { class: ExpressionClass
   if (sawModuleAccess) return { class: 'module-access' }
   if (sawMutation) return { class: 'mutation' }
   if (sawCall) return { class: 'call' }
+  if (sawHarnessCall) return { class: 'harness-call' }
   if (sawIdentifier) return { class: 'inert-read' }
   return { class: 'literal' }
 }
@@ -199,18 +277,19 @@ const ASSIGNMENT_OPERATORS: ReadonlySet<ts.SyntaxKind> = new Set([
 ])
 
 /**
- * Calls with no reach beyond reading the current process's own identity, which
- * the harness's own shipped examples use (`cwd: !!js process.cwd()`). Treating
- * these as `call` would fire on the reference configuration and teach users to
- * ignore the class.
+ * Calls the harness itself puts in scope for these expressions, or that only
+ * read the current process's own identity — `cwd: !!js process.cwd()` and
+ * `root: !!js dshHomePath('sessions')` are both from the shipped bundles.
+ * Grading these as an unknown call would fire on the reference configuration.
  * @param node - the call expression.
- * @returns true when the callee is a known side-effect-free process read.
+ * @returns true when the callee is a catalogued harness or process helper.
  */
 function isInertCall(node: ts.CallExpression): boolean {
   const callee = node.expression
+  if (ts.isIdentifier(callee)) return HARNESS_INERT_CALLS.has(callee.text)
   if (!ts.isPropertyAccessExpression(callee)) return false
-  if (!ts.isIdentifier(callee.expression) || callee.expression.text !== 'process') return false
-  return callee.name.text === 'cwd' || callee.name.text === 'uptime'
+  if (!ts.isIdentifier(callee.expression)) return false
+  return HARNESS_INERT_CALLS.has(`${callee.expression.text}.${callee.name.text}`)
 }
 
 /**
@@ -219,12 +298,14 @@ function isInertCall(node: ts.CallExpression): boolean {
  * @param value - the value to walk.
  * @param path - the diagnostic path prefix.
  * @param slot - the slot these expressions occupy.
- * @param output - accumulator.
+ * @param sink - accumulators, including the walk budget.
+ * @param depth - the current nesting depth.
  */
-function collect(value: unknown, path: string, slot: ExpressionSlot, output: ExpressionSite[]): void {
+function collect(value: unknown, path: string, slot: ExpressionSlot, sink: WalkSink, depth: number): void {
+  if (!admit(sink.budget, value, depth)) return
   if (isJsExpr(value)) {
     const classified = classifyExpression(value.__jsExpr)
-    output.push({
+    sink.expressions.push({
       path,
       expression: value.__jsExpr,
       slot,
@@ -234,11 +315,11 @@ function collect(value: unknown, path: string, slot: ExpressionSlot, output: Exp
     return
   }
   if (Array.isArray(value)) {
-    for (const [index, item] of value.entries()) collect(item, `${path}[${index}]`, slot, output)
+    for (const [index, item] of value.entries()) collect(item, `${path}[${index}]`, slot, sink, depth + 1)
     return
   }
   if (!isRecord(value)) return
-  for (const [key, child] of Object.entries(value)) collect(child, `${path}.${key}`, slot, output)
+  for (const [key, child] of Object.entries(value)) collect(child, `${path}.${key}`, slot, sink, depth + 1)
 }
 
 /**
@@ -247,24 +328,32 @@ function collect(value: unknown, path: string, slot: ExpressionSlot, output: Exp
  * and every other field stays literal so an expression there is inert data.
  * @param entry - the row or patch object.
  * @param path - its diagnostic path.
- * @param output - accumulator.
+ * @param sink - accumulators, including the walk budget.
  * @param configIsData - false when `config` holds child rows rather than plugin data.
+ * @param depth - the current nesting depth.
  */
 function collectEntryExpressions(
-  entry: Record<string, unknown>, path: string, output: ExpressionSite[], configIsData: boolean,
+  entry: Record<string, unknown>, path: string, sink: WalkSink, configIsData: boolean, depth: number,
 ): void {
-  if (configIsData && 'config' in entry) collect(entry.config, `${path}.config`, 'config', output)
+  if (configIsData && 'config' in entry) collect(entry.config, `${path}.config`, 'config', sink, depth + 1)
   if ('disabled' in entry) {
     const disabled = entry.disabled
-    if (isJsExpr(disabled)) {
-      collect(disabled, `${path}.disabled`, 'disabled', output)
-    } else {
-      collect(disabled, `${path}.disabled`, 'inert', output)
-    }
+    const slot: ExpressionSlot = isJsExpr(disabled) ? 'disabled' : 'inert'
+    collect(disabled, `${path}.disabled`, slot, sink, depth + 1)
   }
   for (const field of STATIC_ENTRY_FIELDS) {
-    if (field in entry) collect(entry[field], `${path}.${field}`, 'inert', output)
+    if (field in entry) collect(entry[field], `${path}.${field}`, 'inert', sink, depth + 1)
   }
+}
+
+/**
+ * The service names an `isolate` or `intercept` entry field names. The loader
+ * reads both as a dictionary keyed by service name (`entry.options.isolate?.[name]`).
+ * @param value - the raw field value.
+ * @returns the service names, or an empty list when the field is absent or malformed.
+ */
+function serviceNames(value: unknown): string[] {
+  return isRecord(value) ? Object.keys(value) : []
 }
 
 /**
@@ -283,6 +372,7 @@ interface WalkSink {
   readonly overrides: OverridePatch[]
   readonly inserts: InsertedRow[]
   readonly expressions: ExpressionSite[]
+  readonly budget: WalkBudget
 }
 
 /**
@@ -291,9 +381,11 @@ interface WalkSink {
  * @param path - its diagnostic path.
  * @param intoGroupId - the group this row is inserted into, or `null`.
  * @param sink - accumulators.
+ * @param depth - the current nesting depth.
  */
-function walkRow(value: unknown, path: string, intoGroupId: string | null, sink: WalkSink): void {
+function walkRow(value: unknown, path: string, intoGroupId: string | null, sink: WalkSink, depth: number): void {
   if (!isRecord(value)) return
+  if (!admit(sink.budget, value, depth)) return
   const carrier = isTreeCarrier(value)
   sink.inserts.push({
     path,
@@ -301,18 +393,20 @@ function walkRow(value: unknown, path: string, intoGroupId: string | null, sink:
     name: typeof value.name === 'string' ? value.name : null,
     config: value.config,
     intoGroupId,
+    isolate: serviceNames(value.isolate),
+    intercept: serviceNames(value.intercept),
   })
-  collectEntryExpressions(value, path, sink.expressions, !carrier)
+  collectEntryExpressions(value, path, sink, !carrier, depth)
   if (!carrier) return
   const config = value.config
   if (Array.isArray(config)) {
     for (const [index, child] of config.entries()) {
-      walkRow(child, `${path}.config[${index}]`, typeof value.id === 'string' ? value.id : null, sink)
+      walkRow(child, `${path}.config[${index}]`, typeof value.id === 'string' ? value.id : null, sink, depth + 1)
     }
     return
   }
   if (isRecord(config) && Array.isArray(config.patches)) {
-    walkPatchList(config.patches, `${path}.config.patches`, sink)
+    walkPatchList(config.patches, `${path}.config.patches`, sink, depth + 1)
   }
 }
 
@@ -323,15 +417,17 @@ function walkRow(value: unknown, path: string, intoGroupId: string | null, sink:
  * @param list - the patch array.
  * @param prefix - diagnostic path prefix.
  * @param sink - accumulators.
+ * @param depth - the current nesting depth.
  */
-function walkPatchList(list: readonly unknown[], prefix: string, sink: WalkSink): void {
+function walkPatchList(list: readonly unknown[], prefix: string, sink: WalkSink, depth: number): void {
   for (const [index, patch] of list.entries()) {
     const path = `${prefix}[${index}]`
     if (!isRecord(patch)) continue
+    if (!admit(sink.budget, patch, depth)) continue
     const id = typeof patch.id === 'string' ? patch.id : null
     if (Array.isArray(patch.insert)) {
       for (const [rowIndex, row] of patch.insert.entries()) {
-        walkRow(row, `${path}.insert[${rowIndex}]`, id, sink)
+        walkRow(row, `${path}.insert[${rowIndex}]`, id, sink, depth + 1)
       }
       continue
     }
@@ -345,7 +441,7 @@ function walkPatchList(list: readonly unknown[], prefix: string, sink: WalkSink)
       disabled: 'disabled' in patch ? patch.disabled : undefined,
       config: patch.config,
     })
-    collectEntryExpressions(patch, path, sink.expressions, true)
+    collectEntryExpressions(patch, path, sink, true, depth)
   }
 }
 
@@ -367,7 +463,18 @@ export function parsePatchDocument(file: string, text: string): PatchDocument {
   if (!Array.isArray(document)) {
     throw new PatchParseError('a patch layer must be a top-level array of entries', false)
   }
-  const sink: WalkSink = { overrides: [], inserts: [], expressions: [] }
-  walkPatchList(document, '', sink)
-  return { file, overrides: sink.overrides, inserts: sink.inserts, expressions: sink.expressions }
+  const sink: WalkSink = {
+    overrides: [],
+    inserts: [],
+    expressions: [],
+    budget: { visited: new WeakSet(), nodes: 0, limit: null },
+  }
+  walkPatchList(document, '', sink, 0)
+  return {
+    file,
+    overrides: sink.overrides,
+    inserts: sink.inserts,
+    expressions: sink.expressions,
+    limit: sink.budget.limit,
+  }
 }

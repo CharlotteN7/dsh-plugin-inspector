@@ -17,8 +17,18 @@ describe('expression classification', () => {
     expect(classifyExpression('true').class).toBe('literal')
   })
 
-  it('treats process.cwd() as inert, because the shipped harness examples use it', () => {
-    expect(classifyExpression('process.cwd()').class).toBe('inert-read')
+  it('separates a call to a harness-provided helper from a call it cannot resolve', () => {
+    // dsh-app-boot does `ctx.provide('dshHomePath', dshHomePath)` before any
+    // entry mounts, and the base bundle's own `session-persistence-jsonl` row
+    // calls it. Grading it by syntactic form puts the shipped configuration at
+    // the same severity as an attack.
+    expect(classifyExpression("dshHomePath('sessions')").class).toBe('harness-call')
+    expect(classifyExpression('process.cwd()').class).toBe('harness-call')
+    expect(classifyExpression("collectAndSend('sessions')").class).toBe('call')
+  })
+
+  it('still grades reach above form: a harness helper inside a module reach is a module reach', () => {
+    expect(classifyExpression("require('fs').readFileSync(dshHomePath('x'))").class).toBe('module-access')
   })
 
   it('reports an unparseable expression instead of throwing', () => {
@@ -105,6 +115,71 @@ describe('the patch model', () => {
 `)
     expect(parsed.inserts.map(row => row.id)).toEqual(['outer', 'inner'])
     expect(parsed.expressions.map(site => site.path)).toEqual(['[0].insert[0].config[0].config.key'])
+  })
+})
+
+describe('a layer built out of YAML aliases', () => {
+  /**
+   * Eleven levels of nine-way aliasing. js-yaml returns this in milliseconds
+   * because `*a` is a reference, not a copy: the result is roughly a hundred
+   * objects in a small graph. Walking that graph as a tree visits 9^11 ≈ 31
+   * billion of them, which is not slow, it is non-terminating — and a hang in
+   * CI is worse than a crash, because it produces no exit code at all.
+   */
+  const bomb = `
+- id: r0
+  config:
+    a: &a ["x", "x", "x", "x", "x", "x", "x", "x", "x"]
+    b: &b [*a, *a, *a, *a, *a, *a, *a, *a, *a]
+    c: &c [*b, *b, *b, *b, *b, *b, *b, *b, *b]
+    d: &d [*c, *c, *c, *c, *c, *c, *c, *c, *c]
+    e: &e [*d, *d, *d, *d, *d, *d, *d, *d, *d]
+    f: &f [*e, *e, *e, *e, *e, *e, *e, *e, *e]
+    g: &g [*f, *f, *f, *f, *f, *f, *f, *f, *f]
+    h: &h [*g, *g, *g, *g, *g, *g, *g, *g, *g]
+    i: &i [*h, *h, *h, *h, *h, *h, *h, *h, *h]
+    j: &j [*i, *i, *i, *i, *i, *i, *i, *i, *i]
+    boom: [*j, *j, *j, *j, *j, *j, *j, *j, *j]
+`
+
+  it('is walked once per node rather than once per path', () => {
+    const started = Date.now()
+    const parsed = parsePatchDocument('cordis.patch.yml', bomb)
+    expect(Date.now() - started).toBeLessThan(2_000)
+    expect(parsed.overrides.map(override => override.id)).toEqual(['r0'])
+  })
+
+  it('finds the expression an alias graph hides, exactly once', () => {
+    const parsed = parsePatchDocument('cordis.patch.yml', `
+- id: r0
+  config:
+    a: &a { key: !!js require('child_process') }
+    b: [*a, *a, *a]
+`)
+    expect(parsed.expressions.map(site => site.classification)).toEqual(['module-access'])
+  })
+
+  it('refuses plainly nested YAML at the dialect, before the walk sees it', () => {
+    // js-yaml caps syntactic nesting at 100 levels, so the shape that would
+    // recurse the walker never parses. The layer is then unloadable in the
+    // harness too, which is A17.
+    const deep = `- id: r\n  config:\n${Array.from({ length: 400 }, (_, index) => `${'  '.repeat(index + 2)}k:`).join('\n')}\n`
+    expect(() => parsePatchDocument('cordis.patch.yml', deep)).toThrow(PatchParseError)
+  })
+
+  it('reports a layer whose aliases nest past the walk ceiling rather than reading part of it in silence', () => {
+    // Aliases build depth without building syntax: each anchor is one line and
+    // wraps the one before it, so the parsed graph is 260 deep while the file
+    // never nests past two levels.
+    const chain = Array.from({ length: 260 }, (_, index) =>
+      (index === 0 ? 'a0: &a0 [0]' : `a${index}: &a${index} [*a${index - 1}]`))
+    // The anchors live under a key the loader never interpolates, so the walk
+    // meets the chain only from its far end, all at once.
+    const parsed = parsePatchDocument(
+      'cordis.patch.yml',
+      `- id: definitions\n  notes:\n    ${chain.join('\n    ')}\n- id: r\n  config:\n    deep: *a259\n`,
+    )
+    expect(parsed.limit).toBe('depth')
   })
 })
 
