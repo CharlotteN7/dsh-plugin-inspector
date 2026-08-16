@@ -99,6 +99,17 @@ describe('argument parsing', () => {
     expect(() => parseArgs([])).toThrow(/target directory or tarball is required/)
   })
 
+  it('keeps fetching opt-in: --from-npm is never combined with, or inferred from, a path', () => {
+    expect(parseArgs(['--from-npm', 'dsh-thing@1.0.0'])).toMatchObject({
+      target: null, fromNpm: 'dsh-thing@1.0.0', registry: 'https://registry.npmjs.org',
+    })
+    expect(parseArgs(['./plugin'])).toMatchObject({ target: './plugin', fromNpm: null })
+    expect(() => parseArgs(['--from-npm', 'a', './plugin'])).toThrow(/cannot be combined with a local target/)
+    expect(() => parseArgs(['--from-npm'])).toThrow(/--from-npm needs a value/)
+    expect(() => parseArgs(['--from-npm', 'a', '--from-npm', 'b'])).toThrow(/only one package/)
+    expect(() => parseArgs(['--registry'])).toThrow(/--registry needs a value/)
+  })
+
   it('returns null for --help and --version, which are not analyses', () => {
     const stdout = vi.spyOn(process.stdout, 'write').mockReturnValue(true)
     expect(parseArgs(['--help'])).toBeNull()

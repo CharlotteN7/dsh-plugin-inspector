@@ -27,6 +27,7 @@ import {
   type Confidence,
   type Facts,
   type Finding,
+  type RegistryProvenance,
   type Report,
   type Severity,
 } from './model.ts'
@@ -92,13 +93,27 @@ function downgrade(confidence: Confidence, degraded: boolean): Confidence {
 }
 
 /**
- * Inspect a plugin package.
+ * Inspect a plugin package on disk.
+ *
+ * Nothing on this path opens a socket: neither this module nor anything it
+ * imports can reach the registry, which is what makes "a directory or tarball
+ * scan never fetches" structural rather than a promise.
  * @param target - a plugin directory, or a `.tgz` / `.tar.gz` npm tarball.
  * @returns the complete report.
  * @throws SourceError or ManifestError when the target cannot be analysed at all.
  */
 export async function inspect(target: string): Promise<Report> {
-  const source = await loadSource(target)
+  return analyze(await loadSource(target))
+}
+
+/**
+ * Run every check over an already-decoded package.
+ * @param source - the decoded package.
+ * @param registry - provenance, when the bytes were fetched from a registry.
+ * @returns the complete report.
+ * @throws ManifestError when the manifest cannot be read.
+ */
+export function analyze(source: PluginSource, registry?: RegistryProvenance): Report {
   const manifest = parseManifest(source.files.get('package.json') ?? '')
   const declared = manifest.dsh.bundle?.patch
   const mountsAsBundle = declared !== undefined
@@ -169,7 +184,7 @@ export async function inspect(target: string): Promise<Report> {
   return {
     schemaVersion: 1,
     tool: { name: TOOL_NAME, version: TOOL_VERSION, harnessReference: HARNESS_REFERENCE },
-    target: { kind: source.kind, path: source.path },
+    target: { kind: source.kind, path: source.path, ...registry === undefined ? {} : { registry } },
     facts,
     analysis: {
       integrity: degraded ? 'degraded' : 'complete',

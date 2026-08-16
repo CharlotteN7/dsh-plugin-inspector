@@ -21,7 +21,7 @@
 
 import { createReadStream, openSync, readdirSync, readFileSync, readSync, closeSync, statSync, type Dirent, type Stats } from 'node:fs'
 import { join, posix, relative, resolve, sep } from 'node:path'
-import { PassThrough, Transform } from 'node:stream'
+import { PassThrough, Readable, Transform } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import { createGunzip } from 'node:zlib'
 import { Parser } from 'tar'
@@ -59,9 +59,16 @@ const SKIPPED_DIRECTORIES: ReadonlySet<string> = new Set([
 /** Thrown when the target cannot be read at all, which is exit code 2, not a finding. */
 export class SourceError extends Error {}
 
+/**
+ * Where the analysed bytes came from. `registry` is a tarball too — the same
+ * in-memory decoding, over bytes fetched by `--from-npm` instead of read from
+ * disk — and is kept distinct so a report says which one it was.
+ */
+export type SourceKind = 'directory' | 'tarball' | 'registry'
+
 /** The analysed package, decoded into memory. */
 export interface PluginSource {
-  readonly kind: 'directory' | 'tarball'
+  readonly kind: SourceKind
   /** The target as the user gave it, resolved to an absolute path. */
   readonly path: string
   /** Package-relative POSIX path to UTF-8 text, for every readable text file. */
@@ -288,10 +295,11 @@ function isGzip(file: string): boolean {
  * `await`, so every one of them is captured here and rethrown on the awaited
  * path — an emitter-thrown `RangeError` that escapes becomes an uncaught
  * exception and a raw stack trace on a user's terminal.
- * @param file - absolute path to the `.tgz`.
+ * @param bytes - the arriving tar stream, gzipped or not.
+ * @param gzipped - whether to inflate before parsing.
  * @param collector - the shared accumulator.
  */
-async function readTarball(file: string, collector: Collector): Promise<void> {
+async function readTarStream(bytes: Readable, gzipped: boolean, collector: Collector): Promise<void> {
   const pending: Promise<void>[] = []
   let failure: unknown = null
   const parser = new Parser({
@@ -339,8 +347,8 @@ async function readTarball(file: string, collector: Collector): Promise<void> {
       }))
     },
   })
-  const inflate = isGzip(file) ? createGunzip() : new PassThrough()
-  await pipeline(createReadStream(file), inflate, byteCeiling(MAX_STREAM_BYTES), parser)
+  const inflate = gzipped ? createGunzip() : new PassThrough()
+  await pipeline(bytes, inflate, byteCeiling(MAX_STREAM_BYTES), parser)
   await Promise.all(pending)
   if (failure !== null) throw failure
 }
@@ -415,16 +423,62 @@ export async function loadSource(target: string, limits: ReadLimits = DEFAULT_LI
     walkDirectory(path, path, collector, published)
   } else {
     published = TARBALL_PUBLISH_SET
-    try {
-      await readTarball(path, collector)
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : String(error)
-      throw new SourceError(`cannot read tarball ${path}: ${detail}`)
-    }
-    if (collector.entries === 0) {
-      throw new SourceError(`${path} holds no tar entries — this is not a readable npm tarball`)
-    }
+    await decodeTar(createReadStream(path), isGzip(path), collector, path)
   }
+  return finish(kind, path, collector, published)
+}
+
+/**
+ * Decode an npm tarball held in memory, for bytes that never touched the disk.
+ *
+ * The only caller is the `--from-npm` path, which fetches a tarball and
+ * verifies its `dist.integrity` hash before handing the buffer here. Reading it
+ * goes through the same `Parser` as the on-disk path, so the "no extraction,
+ * ever" property covers both.
+ * @param bytes - the complete tarball, gzipped or not.
+ * @param label - what to report as the target path, e.g. `npm:pkg@1.2.3`.
+ * @param limits - resource ceilings; defaults to {@link DEFAULT_LIMITS}.
+ * @returns the decoded package.
+ * @throws SourceError when the buffer is not a readable npm tarball.
+ */
+export async function loadTarballBuffer(
+  bytes: Buffer, label: string, limits: ReadLimits = DEFAULT_LIMITS,
+): Promise<PluginSource> {
+  const collector: Collector = { files: new Map(), skipped: [], limits, bytes: 0, entries: 0, unpublished: 0 }
+  const gzipped = bytes[0] === 0x1f && bytes[1] === 0x8b
+  await decodeTar(Readable.from(bytes), gzipped, collector, label)
+  return finish('registry', label, collector, TARBALL_PUBLISH_SET)
+}
+
+/**
+ * Run the tar pipeline and turn every failure into a `SourceError` naming the
+ * target, so a caller can tell "this is not a tarball" from a crash.
+ * @param bytes - the arriving tar stream.
+ * @param gzipped - whether to inflate before parsing.
+ * @param collector - the shared accumulator.
+ * @param label - the target as it should appear in an error message.
+ */
+async function decodeTar(bytes: Readable, gzipped: boolean, collector: Collector, label: string): Promise<void> {
+  try {
+    await readTarStream(bytes, gzipped, collector)
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error)
+    throw new SourceError(`cannot read tarball ${label}: ${detail}`)
+  }
+  if (collector.entries === 0) {
+    throw new SourceError(`${label} holds no tar entries — this is not a readable npm tarball`)
+  }
+}
+
+/**
+ * Assemble the decoded package, refusing a target that holds no manifest.
+ * @param kind - where the bytes came from.
+ * @param path - the target as it should appear in the report.
+ * @param collector - the shared accumulator.
+ * @param published - the publish-set membership test that was used.
+ * @returns the decoded package.
+ */
+function finish(kind: SourceKind, path: string, collector: Collector, published: PublishSet): PluginSource {
   if (!collector.files.has('package.json')) {
     throw new SourceError(`no readable package.json in ${path} — this is not an npm package`)
   }

@@ -122,9 +122,19 @@ function describeFileSet(facts: Report['facts']): string {
  */
 function renderFacts(report: Report, paint: (code: string, text: string) => string): string[] {
   const { facts } = report
+  const provenance = report.target.registry
   const rows: [string, string][] = [
     ['package', `${facts.packageName}@${facts.packageVersion}${facts.license === null ? '' : ` (${facts.license})`}`],
     ['read from', `${report.target.kind} ${report.target.path}`],
+    ...provenance === undefined
+      ? []
+      : [
+          ['fetched from', `${provenance.tarball} (${provenance.tarballBytes} bytes, never written to disk)`] as [string, string],
+          ['verified', `${provenance.digest} matched dist.integrity before anything parsed it`] as [string, string],
+          ['install script', provenance.hasInstallScript
+            ? 'yes — the registry marks this package as running one at install time'
+            : 'no — the registry does not mark this package as running one'] as [string, string],
+        ],
     ['mounted layer', facts.mountsAsBundle
       ? `yes — dsh.bundle.patch = ${facts.bundlePatchPath ?? '?'} (imported into the harness process at the agent's uid)`
       : 'no — installs as a plain library, and dsh plugin add prints a warning saying so'],

@@ -136,6 +136,30 @@ export interface AnalysisIntegrity {
   readonly filesSkipped: readonly SkippedFile[]
 }
 
+/**
+ * Where a `--from-npm` target came from and how the bytes were checked.
+ *
+ * Present only in registry mode. Its presence in a report is the record that
+ * this invocation opened a socket, which a directory or tarball scan never
+ * does.
+ */
+export interface RegistryProvenance {
+  /** The spec as the user typed it. */
+  readonly spec: string
+  /** The registry base URL the packument was read from. */
+  readonly registry: string
+  readonly resolvedVersion: string
+  readonly tarball: string
+  /** The digest that matched, in the registry's own encoding. */
+  readonly digest: string
+  /** The algorithm that digest was taken with. `sha1` means no `dist.integrity` was published. */
+  readonly algorithm: string
+  /** The registry's own flag, read before the tarball was fetched. */
+  readonly hasInstallScript: boolean
+  readonly metadataBytes: number
+  readonly tarballBytes: number
+}
+
 /** The complete inspection result, and the shape of `--json` output. */
 export interface Report {
   readonly schemaVersion: 1
@@ -149,7 +173,12 @@ export interface Report {
      */
     readonly harnessReference: string
   }
-  readonly target: { readonly kind: 'directory' | 'tarball', readonly path: string }
+  readonly target: {
+    readonly kind: 'directory' | 'tarball' | 'registry'
+    readonly path: string
+    /** Present only when the bytes were fetched from a registry. */
+    readonly registry?: RegistryProvenance
+  }
   readonly facts: Facts
   readonly analysis: AnalysisIntegrity
   readonly summary: Readonly<Record<Severity, number>>

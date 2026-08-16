@@ -12,7 +12,20 @@
  * @module dsh-plugin-inspector
  */
 
-export { exceedsThreshold, inspect, TOOL_NAME, TOOL_VERSION } from './inspect.ts'
+export { analyze, exceedsThreshold, inspect, TOOL_NAME, TOOL_VERSION } from './inspect.ts'
+export { inspectFromNpm, precheck } from './npm.ts'
+export {
+  DEFAULT_REGISTRY,
+  fetchVerifiedTarball,
+  parseSpec,
+  RegistryError,
+  resolvePackage,
+  verifyIntegrity,
+  type PackageSpec,
+  type RegistryOptions,
+  type ResolvedPackage,
+  type VerifiedTarball,
+} from './registry.ts'
 export { renderHuman, renderJson } from './report.ts'
 export {
   classifyExpression,
@@ -29,7 +42,15 @@ export {
   type PatchDocument,
 } from './cordis-yaml.ts'
 export { declaredPackages, ManifestError, parseManifest, type PackageManifest } from './manifest.ts'
-export { DEFAULT_LIMITS, loadSource, SourceError, type PluginSource, type ReadLimits } from './source.ts'
+export {
+  DEFAULT_LIMITS,
+  loadSource,
+  loadTarballBuffer,
+  SourceError,
+  type PluginSource,
+  type ReadLimits,
+  type SourceKind,
+} from './source.ts'
 export { globMatch, publishSet, type PublishBasis, type PublishInputs, type PublishSet } from './publish.ts'
 export { INJECTION_RULES, scanInjection, type InjectionMatch, type InjectionRule } from './injection.ts'
 export {
@@ -42,6 +63,7 @@ export {
   type Evidence,
   type Facts,
   type Finding,
+  type RegistryProvenance,
   type Report,
   type Severity,
   type Tier,
