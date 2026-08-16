@@ -6,7 +6,7 @@
 
 import process from 'node:process'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { EXIT, main, parseArgs, UsageError } from '../../src/cli.ts'
+import { EXIT, main, parseArgs, reportFatal, UsageError } from '../../src/cli.ts'
 import { inspect } from '../../src/inspect.ts'
 import { renderHuman, renderJson } from '../../src/report.ts'
 import { fixture } from './fixtures.ts'
@@ -57,10 +57,32 @@ describe('exit codes', () => {
   })
 
   it('honours --fail-on, including turning the gate off', async () => {
-    const target = fixture('postinstall-script')
+    // skill-injection's worst finding is high, so the gate moves between the
+    // three settings rather than sitting on one side of all of them.
+    const target = fixture('skill-injection')
     expect((await run([target, '--json', '--fail-on', 'critical'])).code).toBe(EXIT.clean)
     expect((await run([target, '--json', '--fail-on', 'high'])).code).toBe(EXIT.findings)
     expect((await run([target, '--json', '--fail-on', 'none'])).code).toBe(EXIT.clean)
+  })
+
+  it('leaves with 2 for a failure no `catch` could reach, never with 1', () => {
+    // A RangeError raised inside a stream's 'end' handler is thrown at an
+    // EventEmitter and walks past every try/catch in the program. Node's
+    // default handler then exits 1, which in this tool's contract means
+    // "analysis completed, findings at or above --fail-on" — a crash read as a
+    // verdict, which is the exact confusion code 2 exists to prevent.
+    let err = ''
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+      err += String(chunk)
+      return true
+    })
+    try {
+      expect(reportFatal(new RangeError('Array buffer allocation failed'))).toBe(EXIT.unanalysable)
+    } finally {
+      stderr.mockRestore()
+    }
+    expect(err).toContain('could not be completed')
+    expect(err).toContain('Array buffer allocation failed')
   })
 
   it('treats a malformed command line as unanalysable, never as clean', async () => {

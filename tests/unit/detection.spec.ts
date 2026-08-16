@@ -64,12 +64,16 @@ describe('a !!js expression that reaches the module system', () => {
 })
 
 describe('an install lifecycle script', () => {
-  it('is a Tier A high naming the script', async () => {
+  it('names the script and the pnpm default that stands in front of it', async () => {
     const report = await inspect(fixture('postinstall-script'))
     const finding = onlyCheck(report, 'A1')
-    expect(finding.severity).toBe('high')
     expect(finding.title).toContain('postinstall')
     expect(finding.evidence.path).toBe('scripts.postinstall')
+    // pnpm >= 10 blocks a dependency's lifecycle scripts until the package is
+    // listed under allowBuilds, and the harness prints that instruction itself.
+    // Asserting execution at the user's uid would be wrong about the outcome.
+    expect(finding.severity).toBe('medium')
+    expect(finding.detail).toContain('allowBuilds')
   })
 })
 
@@ -95,16 +99,25 @@ describe('a shipped skill carrying injection text', () => {
     const report = await inspect(fixture('skill-injection'))
     expect(onlyCheck(report, 'A12').severity).toBe('low')
     expect(onlyCheck(report, 'A15').severity).toBe('high')
-    const injections = withCheck(report, 'B10')
+    const injections = withCheck(report, 'A21')
     expect(injections.length).toBeGreaterThanOrEqual(3)
     expect(injections.every(finding => finding.evidence.file.endsWith('SKILL.md'))).toBe(true)
   })
 
   it('names which heuristic fired so the reader can judge it', async () => {
     const report = await inspect(fixture('skill-injection'))
-    const rules = withCheck(report, 'B10').map(finding => finding.detail)
+    const rules = withCheck(report, 'A21').map(finding => finding.detail)
     expect(rules.some(detail => detail.includes('override-prior-instructions'))).toBe(true)
     expect(rules.some(detail => detail.includes('conceal-from-user'))).toBe(true)
+  })
+
+  it('is Tier A, so a minified sibling file cannot lower its confidence', async () => {
+    // The shipped markdown IS the prompt: there is no syntax between these
+    // bytes and the model, so there is nothing for a Tier C degradation to
+    // have made unreliable.
+    const report = await inspect(fixture('skill-injection'))
+    expect(withCheck(report, 'A21').every(finding => finding.tier === 'A')).toBe(true)
+    expect(withCheck(report, 'A21').every(finding => finding.confidence === 'certain')).toBe(true)
   })
 })
 
@@ -142,7 +155,18 @@ describe('an obfuscated package', () => {
     const report = await inspect(fixture('obfuscated'))
     expect(report.analysis.integrity).toBe('degraded')
     expect(report.analysis.negativesReliable).toBe(false)
-    expect(report.analysis.degradedBy).toEqual(['C1', 'C2', 'C3'])
+    expect(report.analysis.degradedBy).toEqual(['C1', 'C2'])
+  })
+
+  it('does not count shipping build output as an unreadable package', async () => {
+    // C3 is still reported — the build cannot be checked against a source that
+    // is not there. It says nothing about whether the parse succeeded, and
+    // shipping only `lib` is what publishing a package looks like, so letting
+    // it set `negativesReliable: false` would mark every ordinary tarball
+    // degraded and empty the word of meaning.
+    const report = await inspect(fixture('obfuscated'))
+    expect(withCheck(report, 'C3')).toHaveLength(1)
+    expect(report.analysis.degradedBy).not.toContain('C3')
   })
 
   it('downgrades Tier B confidence rather than dropping the finding', async () => {

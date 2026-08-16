@@ -10,18 +10,32 @@
  */
 
 import { isJsExpr, type ExpressionClass, type ExpressionSite } from '../cordis-yaml.ts'
-import { snippet } from '../files.ts'
+import { boundedJson, lineColumn, normalizePackagePath, snippet } from '../files.ts'
+import { scanInjection } from '../injection.ts'
 import {
   CORE_ROWS,
+  HARNESS_BUNDLE_PACKAGES,
   INSTALL_LIFECYCLE_SCRIPTS,
   MCP_CLIENT_PACKAGE,
   SECURITY_ROW_IDS,
+  SECURITY_SEAM_KEYS,
+  SEAM_KEYS,
   SKILL_FILESYSTEM_ROW,
   SKILL_ROOT_CONFIG_KEYS,
 } from '../knowledge.ts'
 import { declaredPackages } from '../manifest.ts'
 import type { Finding, Severity } from '../model.ts'
 import type { CheckInput } from './input.ts'
+
+/**
+ * Checks that read a Cordis patch row. None of them may produce a finding
+ * about a package the harness never composes into a profile: `dsh plugin add`
+ * on a package with no `dsh.bundle` installs a plain library and says so, and
+ * whatever YAML that library happens to ship is inert bytes.
+ */
+const PATCH_ROW_CHECKS: ReadonlySet<string> = new Set([
+  'A2', 'A3', 'A4', 'A5', 'A6', 'A7', 'A8', 'A9', 'A10', 'A15', 'A17', 'A19', 'A23',
+])
 
 /** Loader builtins that are entry names but not resolvable npm packages. */
 const LOADER_BUILTINS: ReadonlySet<string> = new Set([
@@ -32,12 +46,20 @@ const LOADER_BUILTINS: ReadonlySet<string> = new Set([
 /** Specifier prefixes that do not pin an immutable registry artifact. */
 const MUTABLE_SPECIFIER = /^(?:git\+|git:|github:|gitlab:|bitbucket:|https?:|file:|link:|portal:)/
 
-/** How much reach each `!!js` classification represents. */
+/**
+ * How much reach each `!!js` classification represents.
+ *
+ * `call` is medium, not high: the class means "calls something this tool
+ * cannot resolve", and under `with (ctx)` most of what a config expression can
+ * call is a service the profile already handed it. `harness-call` is lower
+ * still — the harness itself puts those functions in scope.
+ */
 const EXPRESSION_SEVERITY: Readonly<Record<ExpressionClass, Severity>> = {
   'module-access': 'critical',
   mutation: 'high',
-  call: 'high',
+  call: 'medium',
   unparseable: 'medium',
+  'harness-call': 'low',
   'inert-read': 'low',
   literal: 'low',
 }
@@ -46,11 +68,19 @@ const EXPRESSION_SEVERITY: Readonly<Record<ExpressionClass, Severity>> = {
 const EXPRESSION_MEANING: Readonly<Record<ExpressionClass, string>> = {
   'module-access': 'reaches the module system, the global object, or the evaluator',
   mutation: 'writes to something rather than only reading',
-  call: 'calls a function',
+  call: 'calls something this tool cannot resolve',
   unparseable: 'does not parse, so the entry cannot mount',
+  'harness-call': 'calls a helper the harness provides to config expressions',
   'inert-read': 'reads an identifier',
   literal: 'is a constant',
 }
+
+/**
+ * Classifications with no reach at all. A constant and a read of a service the
+ * profile already provides are what the shipped bundles are made of, so they
+ * are counted as a fact and never raised as a finding.
+ */
+const INERT_CLASSES: ReadonlySet<ExpressionClass> = new Set<ExpressionClass>(['literal', 'inert-read'])
 
 /**
  * Build one finding, keeping every Tier A finding at `certain` confidence and
@@ -63,36 +93,73 @@ function tierA(finding: Omit<Finding, 'tier' | 'confidence' | 'bypass'>): Findin
 }
 
 /**
- * Normalise a manifest-declared relative path to the package-relative POSIX
- * form used as map keys, or report that it leaves the package.
- * @param declared - the path exactly as the manifest declares it.
- * @returns the normalised path, or `null` when it escapes the package root.
+ * Whether the package under analysis is itself one of the harness's shipped
+ * bundles. A bundle composes the core row set: `@deepseek-ai/dsh-web-app`
+ * disabling two dozen rows `@deepseek-ai/dsh-base` inserted is what a bundle
+ * *is*, and reporting each one as an attack on the profile says nothing.
+ * @param input - the decoded package.
+ * @returns true when this package's own name is a shipped bundle's.
  */
-function normalizePackagePath(declared: string): string | null {
-  if (declared.startsWith('/') || /^[a-zA-Z]:[\\/]/.test(declared)) return null
-  const segments: string[] = []
-  for (const segment of declared.split(/[\\/]/)) {
-    if (segment === '' || segment === '.') continue
-    if (segment === '..') {
-      if (segments.length === 0) return null
-      segments.pop()
-      continue
-    }
-    segments.push(segment)
-  }
-  return segments.join('/')
+function isHarnessBundle(input: CheckInput): boolean {
+  return HARNESS_BUNDLE_PACKAGES.has(input.manifest.name)
 }
 
-/** A2, A3 — a patch layer switching a core row off. */
+/**
+ * How severe it is to remove one core row, by which bundles define it. Every
+ * profile mounts `base`; `headless` and `web-app` are surface bundles a given
+ * profile may never have mounted, so a row only they define was never there to
+ * lose.
+ * @param id - the row id.
+ * @returns the severity, or `null` when the id is not a core row at all.
+ */
+function coreRowSeverity(id: string): Severity | null {
+  const row = CORE_ROWS.get(id)
+  if (row === undefined) return null
+  return row.bundles.includes('base') ? 'high' : 'medium'
+}
+
+/**
+ * Name the bundles a core row comes from, for a finding's prose.
+ * @param id - the row id.
+ * @returns a phrase naming the bundles.
+ */
+function coreRowOrigin(id: string): string {
+  const row = CORE_ROWS.get(id)
+  if (row === undefined) return 'a shipped bundle'
+  return row.bundles.map(bundle => `@deepseek-ai/dsh-${bundle}`).join(' and ')
+}
+
+/** A2, A3, A19 — a patch layer switching a core row off, or back on. */
 function checkDisabledRows(input: CheckInput): Finding[] {
+  if (isHarnessBundle(input)) return []
   const findings: Finding[] = []
   for (const patch of input.patches) {
     for (const override of patch.overrides) {
-      // YAML cannot produce `undefined`, so absent and unset are the same here.
-      if (override.disabled === undefined || override.disabled === false) continue
-      const stops = SECURITY_ROW_IDS.get(override.id)
+      if (override.disabled === undefined) continue
       const expression = isJsExpr(override.disabled) ? override.disabled.__jsExpr : null
-      const shown = expression === null ? JSON.stringify(override.disabled) : `!!js ${expression}`
+      const shown = expression === null ? boundedJson(override.disabled) : `!!js ${expression}`
+      // The loader coerces: `disabledOf` is `Boolean(options.disabled)`
+      // (vendor/loader/src/config/entry.ts). `null`, `0` and `""` therefore
+      // leave the row running, and reporting them as a disabled row would be
+      // confidently wrong about the one thing Tier A claims to be certain of.
+      // An expression node is an object, so it stays truthy here and is judged
+      // by what it can evaluate to rather than by its own shape.
+      if (!override.disabled) {
+        const enabled = coreRowSeverity(override.id)
+        if (enabled === null) continue
+        findings.push(tierA({
+          checkId: 'A19',
+          name: 'core-row-force-enabled',
+          severity: 'medium',
+          title: `Patch layer re-enables the core row "${override.id}"`,
+          detail: 'The loader coerces `disabled` with `Boolean()`, so this value leaves the row running. Because '
+            + 'bundle layers apply after the profile\'s own, a row the user deliberately switched off in their '
+            + 'personal layer is switched back on by this one — and the user\'s file still reads `disabled: true`.',
+          evidence: { file: patch.file, path: `${override.path}.disabled`, snippet: snippet(shown) },
+        }))
+        continue
+      }
+      const stops = SECURITY_ROW_IDS.get(override.id)
       if (stops !== undefined) {
         findings.push(tierA({
           checkId: 'A2',
@@ -107,13 +174,19 @@ function checkDisabledRows(input: CheckInput): Finding[] {
         }))
         continue
       }
-      if (!CORE_ROWS.has(override.id)) continue
+      const severity = coreRowSeverity(override.id)
+      if (severity === null) continue
       findings.push(tierA({
         checkId: 'A3',
         name: 'core-row-disabled',
-        severity: 'high',
+        severity,
         title: `Patch layer disables the core row "${override.id}"`,
-        detail: 'This layer applies after @deepseek-ai/dsh-base and removes a row the shipped profile mounts.',
+        detail: `The row comes from ${coreRowOrigin(override.id)}, and this layer applies after it, so the row `
+          + 'stops running for every session in the profile.'
+          + (severity === 'medium'
+            ? ' That bundle is a surface bundle rather than the shared base, so a profile that does not mount it '
+              + 'never had this row.'
+            : ''),
         evidence: { file: patch.file, path: `${override.path}.disabled`, snippet: snippet(shown) },
       }))
     }
@@ -123,10 +196,11 @@ function checkDisabledRows(input: CheckInput): Finding[] {
 
 /** A4, A5 — a patch layer rewriting a core row it did not define. */
 function checkOverriddenRows(input: CheckInput): Finding[] {
+  if (isHarnessBundle(input)) return []
   const findings: Finding[] = []
   for (const patch of input.patches) {
     for (const override of patch.overrides) {
-      const coreName = CORE_ROWS.get(override.id)
+      const coreName = CORE_ROWS.get(override.id)?.module
       if (coreName === undefined) continue
       if (override.nameGuard !== null && override.nameGuard !== coreName) {
         findings.push(tierA({
@@ -159,12 +233,21 @@ function checkOverriddenRows(input: CheckInput): Finding[] {
   return findings
 }
 
-/** A6, A7 — the `!!js` inventory. */
+/**
+ * A6, A7 — the `!!js` expressions with reach. The complete inventory is a fact
+ * (`facts.jsExpressions`); an expression that is a constant or a read of a
+ * service the profile already provides warrants no decision and is not raised.
+ */
 function checkExpressions(input: CheckInput): Finding[] {
   const findings: Finding[] = []
   for (const patch of input.patches) {
     for (const site of patch.expressions) {
-      findings.push(site.slot === 'inert' ? inertExpression(patch.file, site) : liveExpression(patch.file, site))
+      if (site.slot === 'inert') {
+        findings.push(inertExpression(patch.file, site))
+        continue
+      }
+      if (INERT_CLASSES.has(site.classification)) continue
+      findings.push(liveExpression(patch.file, site))
     }
   }
   return findings
@@ -242,7 +325,7 @@ function checkPatchFailures(input: CheckInput): Finding[] {
 /** A9 — inserting a row that names a module the manifest does not account for. */
 function checkInsertedModules(input: CheckInput): Finding[] {
   const declared = declaredPackages(input.manifest)
-  const coreModules = new Set(CORE_ROWS.values())
+  const coreModules = new Set([...CORE_ROWS.values()].map(row => row.module))
   const findings: Finding[] = []
   for (const patch of input.patches) {
     for (const row of patch.inserts) {
@@ -330,7 +413,7 @@ function checkSkillRootRedirect(input: CheckInput): Finding[] {
           ? ' `bundledSkillDir` additionally marks the root trustedHost, which reads through raw Node fs and '
             + 'bypasses the ctx.fs sandbox.'
           : ''),
-      evidence: { file: row.file, path: `${row.path}.config`, snippet: snippet(JSON.stringify(config)) },
+      evidence: { file: row.file, path: `${row.path}.config`, snippet: snippet(boundedJson(config)) },
     }))
   }
   return findings
@@ -346,11 +429,43 @@ function checkManifest(input: CheckInput): Finding[] {
     findings.push(tierA({
       checkId: 'A1',
       name: 'install-lifecycle-script',
-      severity: 'high',
-      title: `Runs a \`${name}\` script during installation`,
-      detail: 'This command runs at the user\'s uid as part of `dsh plugin add`, before the user has read a line '
-        + 'of the package. `dsh plugin add` forwards its arguments to pnpm verbatim and adds no --ignore-scripts.',
+      severity: 'medium',
+      title: `Declares a \`${name}\` script, which runs at install time once allowed`,
+      detail: 'This command would run at the user\'s uid as part of `dsh plugin add`, before the user has read a '
+        + 'line of the package. Two things stand between it and execution, and neither is this package\'s doing: '
+        + '`dsh plugin add` forwards its arguments to pnpm verbatim and adds no --ignore-scripts, but pnpm ≥10 '
+        + 'blocks dependency lifecycle scripts by default until the exact package is listed under `allowBuilds` in '
+        + 'the profile\'s pnpm-workspace.yaml — and the harness prints that instruction itself when a build is '
+        + 'blocked (apps/cli/src/plugin.ts). Approving the prompt runs this command.',
       evidence: { file: 'package.json', path: `scripts.${name}`, snippet: snippet(manifest.scripts[name] ?? '') },
+    }))
+  }
+
+  for (const command of manifest.binNames) {
+    findings.push(tierA({
+      checkId: 'A22',
+      name: 'installs-command',
+      severity: 'low',
+      title: `Installs the command \`${command}\` on the user's PATH`,
+      detail: 'A `bin` entry is linked into the profile\'s `node_modules/.bin` at install time. It is not run by '
+        + 'the harness, but it is now a name the user, a script, or an agent shell tool can invoke, and it is not '
+        + 'covered by anything in the profile.',
+      evidence: { file: 'package.json', path: 'bin', snippet: snippet(command) },
+    }))
+  }
+
+  const profileBundles = manifest.dsh.profile?.bundles ?? []
+  if (profileBundles.length > 0) {
+    findings.push(tierA({
+      checkId: 'A20',
+      name: 'profile-mounts-bundles',
+      severity: 'high',
+      title: `Declares a profile that mounts ${profileBundles.length} bundle(s)`,
+      detail: 'A `dsh.profile.bundles` list makes this package a profile rather than a layer: the launcher resolves '
+        + 'each named package, reads its `dsh.bundle.patch`, and mounts that layer '
+        + '(packages/boot/app-boot/src/profile.ts). Everything those packages declare composes into the profile, '
+        + 'and none of it is in this package or in this analysis.',
+      evidence: { file: 'package.json', path: 'dsh.profile.bundles', snippet: snippet(profileBundles.join(', ')) },
     }))
   }
 
@@ -392,10 +507,10 @@ function checkManifest(input: CheckInput): Finding[] {
         checkId: 'A14',
         name: 'bundle-patch-escapes-package',
         severity: 'critical',
-        title: 'The declared `dsh.bundle.patch` path leaves the package directory',
-        detail: 'The launcher resolves the patch as join(packageDir, declared) with no sanitisation, so this '
-          + 'package\'s mounted patch layer is read from a file it does not ship and this analysis cannot see. '
-          + 'This tool did not follow the path.',
+        title: 'The declared `dsh.bundle.patch` path climbs out of the package directory',
+        detail: 'The launcher resolves the patch as join(packageDir, declared) with no sanitisation, and `..` '
+          + 'segments survive that join, so this package\'s mounted patch layer is read from a file it does not '
+          + 'ship and this analysis cannot see. This tool did not follow the path.',
         evidence: { file: 'package.json', path: 'dsh.bundle.patch', snippet: snippet(patch) },
       }))
     } else if (!source.files.has(normalized)) {
@@ -405,7 +520,9 @@ function checkManifest(input: CheckInput): Finding[] {
         severity: 'medium',
         title: 'The declared `dsh.bundle.patch` file is not in the package',
         detail: 'The package declares a mounted patch layer whose file is absent — commonly a `files` allowlist '
-          + 'that forgets it. Mounting this bundle fails the profile boot.',
+          + 'that forgets it. Mounting this bundle fails the profile boot. An absolute path lands here too: '
+          + '`join(packageDir, "/etc/passwd")` is `<packageDir>/etc/passwd`, which is inside the package and '
+          + `simply does not exist. The path was resolved to \`${normalized}\` and nothing was read from it.`,
         evidence: { file: 'package.json', path: 'dsh.bundle.patch', snippet: snippet(patch) },
       }))
     }
@@ -440,13 +557,85 @@ function checkModelVisibleText(input: CheckInput): Finding[] {
   })]
 }
 
+/** A23 — an inserted row substituting a service for its whole subtree. */
+function checkServiceRemapping(input: CheckInput): Finding[] {
+  const findings: Finding[] = []
+  for (const patch of input.patches) {
+    for (const row of patch.inserts) {
+      for (const [field, names] of [['isolate', row.isolate], ['intercept', row.intercept]] as const) {
+        const seams = names.filter(name => SEAM_KEYS.has(name))
+        if (seams.length === 0) continue
+        const critical = seams.some(name => SECURITY_SEAM_KEYS.has(name))
+        findings.push(tierA({
+          checkId: 'A23',
+          name: 'row-service-remapping',
+          severity: critical ? 'critical' : 'high',
+          title: `Inserted row "${row.id ?? '(unnamed)'}" re-maps ${seams.map(name => `\`${name}\``).join(', ')} via \`${field}\``,
+          detail: field === 'isolate'
+            ? 'The loader\'s isolate hook binds the named service to a fresh symbol realm for this row and every '
+              + 'row beneath it (vendor/loader/src/config/isolate.ts), so a descendant that injects that name '
+              + 'receives whatever this subtree provides instead of the profile\'s implementation. That is the same '
+              + 'substitution as replacing the service in code, declared in YAML, with no code to read.'
+            : 'The loader\'s intercept hook layers this row\'s own values over the named service for its whole '
+              + 'subtree, so every descendant sees this package\'s version of it.'
+            + (critical ? ' The named service is one whose purpose is to constrain what the agent may do.' : ''),
+          evidence: { file: patch.file, path: `${row.path}.${field}`, snippet: snippet(names.join(', ')) },
+        }))
+      }
+    }
+  }
+  return findings
+}
+
+/**
+ * A21 — injection phrasing in shipped instruction markdown.
+ *
+ * This is Tier A rather than Tier B because there is no syntax between the
+ * bytes and the model: a `SKILL.md` reaches the model verbatim, so the shipped
+ * file *is* the prompt. There is nothing to obfuscate and therefore nothing for
+ * a Tier C degradation to make unreliable — which is why it is exempt from the
+ * downgrade that applies to every capability check. What is heuristic here is
+ * the reading of the sentence, not the reading of the file, and the finding
+ * says so.
+ */
+function checkInjectionText(input: CheckInput): Finding[] {
+  const findings: Finding[] = []
+  for (const path of input.modelVisibleFiles) {
+    const text = input.source.files.get(path)
+    if (text === undefined) continue
+    for (const match of scanInjection(text)) {
+      findings.push({
+        checkId: 'A21',
+        name: 'model-visible-injection',
+        tier: 'A',
+        severity: 'high',
+        confidence: 'certain',
+        title: `Shipped instruction file ${match.meaning}`,
+        detail: `Heuristic \`${match.ruleId}\` matched shipped markdown. The file reaches the model verbatim, `
+          + 'unescaped and uncapped, when it is discovered — there is no encoding step between these bytes and the '
+          + 'model, which is why this is a verdict about the text rather than a capability report. Whether the '
+          + 'sentence is an instruction or a discussion of one is a judgement this tool cannot make: the pattern '
+          + 'will miss a rephrasing, and it can fire on a document that legitimately quotes an attack.',
+        evidence: { file: path, path: lineColumn(text, match.index), snippet: snippet(match.excerpt) },
+        bypass: null,
+      })
+    }
+  }
+  return findings
+}
+
 /**
  * Run every Tier A check.
+ *
+ * The filter is the guard: a package that declares no `dsh.bundle.patch`
+ * composes into no profile, so no reading of a Cordis row in it can be a
+ * verdict about anything. `patches` is already empty in that case; this makes
+ * the property structural rather than a consequence of how the input was built.
  * @param input - the decoded package.
  * @returns findings, unordered.
  */
 export function runTierA(input: CheckInput): Finding[] {
-  return [
+  const findings = [
     ...checkManifest(input),
     ...checkDisabledRows(input),
     ...checkOverriddenRows(input),
@@ -455,6 +644,10 @@ export function runTierA(input: CheckInput): Finding[] {
     ...checkInsertedModules(input),
     ...checkMcpRows(input),
     ...checkSkillRootRedirect(input),
+    ...checkServiceRemapping(input),
     ...checkModelVisibleText(input),
+    ...checkInjectionText(input),
   ]
+  if (input.mountsAsBundle) return findings
+  return findings.filter(finding => !PATCH_ROW_CHECKS.has(finding.checkId))
 }
