@@ -4,11 +4,14 @@
  * @module tests/unit/cli
  */
 
+import { createHash } from 'node:crypto'
+import { readFileSync } from 'node:fs'
 import process from 'node:process'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, describe, expect, it, vi } from 'vitest'
 import { EXIT, main, parseArgs, reportFatal, UsageError } from '../../src/cli.ts'
 import { inspect } from '../../src/inspect.ts'
 import { renderHuman, renderJson } from '../../src/report.ts'
+import { cleanupPackages, createPackage, packExactly } from './package-fixture.ts'
 import { fixture } from './fixtures.ts'
 
 /**
@@ -38,6 +41,8 @@ async function run(argv: readonly string[]): Promise<{ code: number, out: string
 afterEach(() => {
   vi.restoreAllMocks()
 })
+
+afterAll(cleanupPackages)
 
 /**
  * Collapse whitespace so an assertion on a sentence is not defeated by the
@@ -115,6 +120,52 @@ describe('argument parsing', () => {
     expect(parseArgs(['--help'])).toBeNull()
     expect(parseArgs(['--version'])).toBeNull()
     stdout.mockRestore()
+  })
+})
+
+describe('--from-npm', () => {
+  it('says where the bytes came from and that they were verified before parsing', async () => {
+    const bytes = readFileSync(await packExactly(
+      createPackage({
+        'package.json': JSON.stringify({ name: 'fetched', version: '1.0.0', files: ['lib/**/*.js'] }),
+        'lib/index.js': 'export const name = "fetched"\n',
+      }),
+      ['package.json', 'lib/index.js'],
+    ))
+    const tarball = 'https://registry.npmjs.org/fetched/-/fetched-1.0.0.tgz'
+    const metadata = JSON.stringify({
+      name: 'fetched',
+      version: '1.0.0',
+      dist: { tarball, integrity: `sha512-${createHash('sha512').update(bytes).digest('base64')}` },
+    })
+    const original = globalThis.fetch
+    globalThis.fetch = ((url: string | URL): Promise<Response> => Promise.resolve(
+      String(url) === tarball
+        ? new Response(new Uint8Array(bytes), { status: 200 })
+        : new Response(metadata, { status: 200 }),
+    )) as unknown as typeof globalThis.fetch
+    try {
+      const result = await run(['--from-npm', 'fetched@1.0.0', '--no-color'])
+      expect(result.code).toBe(EXIT.clean)
+      expect(result.out).toContain('read from       registry npm:fetched@1.0.0')
+      expect(result.out).toContain('never written to disk')
+      expect(result.out).toContain('matched dist.integrity before anything parsed it')
+    } finally {
+      globalThis.fetch = original
+    }
+  })
+
+  it('leaves with 2 when the registry cannot be reached, never with a verdict', async () => {
+    const original = globalThis.fetch
+    globalThis.fetch = (() => Promise.reject(new Error('ENOTFOUND'))) as unknown as typeof globalThis.fetch
+    try {
+      const result = await run(['--from-npm', 'fetched', '--json'])
+      expect(result.code).toBe(EXIT.unanalysable)
+      expect(result.err).toContain('cannot reach')
+      expect(result.out).toBe('')
+    } finally {
+      globalThis.fetch = original
+    }
   })
 })
 

@@ -9,10 +9,12 @@ export default defineConfig({
       // The workspace conventions set the target at 100 % per file. These are
       // the measured numbers, held as a ratchet so the gate fails on a
       // regression instead of failing on every run. The resource ceilings, the
-      // symlink and escaping-entry refusals, and every check in the catalogue
-      // now have a case; what is left uncovered is mostly defensive branches
-      // in the manifest and tarball readers.
-      thresholds: { lines: 95, functions: 96, branches: 81, statements: 91 },
+      // symlink and escaping-entry refusals, every check in the catalogue, and
+      // every refusal on the registry path now have a case; what is left
+      // uncovered is mostly defensive branches in the manifest and tarball
+      // readers, plus the two process-level handlers in `cli.ts` that only run
+      // when the module is the entry point.
+      thresholds: { lines: 96, functions: 97, branches: 83, statements: 93 },
     },
   },
 })

@@ -62,7 +62,9 @@ describe('the built binary', () => {
     const result = cli('--help')
     expect(result.code).toBe(0)
     expect(result.stdout).toContain('know what a DeepSeek Harness plugin does before you install it')
-    expect(result.stdout).toContain('npm pack')
+    // The usage text has to say how to read a published package without
+    // installing it; that is now one flag rather than a shell pipeline.
+    expect(result.stdout).toContain('dsh-inspect --from-npm <name>@<version>')
   })
 
   it('exits 0 on a well-behaved plugin and prints no findings', () => {
@@ -97,6 +99,33 @@ describe('the built binary', () => {
     expect(report.schemaVersion).toBe(2)
     expect(report.analysis.negativesReliable).toBe(true)
     expect(report.findings.some(finding => finding.checkId === 'B8')).toBe(true)
+  })
+
+  it('refuses to fetch when a local target was also given, so a scan never reaches a network', () => {
+    // The whole non-execution argument rests on the local modes doing nothing
+    // but read bytes. Fetching is one flag, and the flag is exclusive.
+    const result = cli('--from-npm', 'some-plugin', `${FIXTURES}benign-control`)
+    expect(result.code).toBe(2)
+    expect(result.stderr).toContain('cannot be combined with a local target')
+    expect(result.stdout).toBe('')
+  })
+
+  it('aggregates repeated imports into one finding carrying the count', () => {
+    const root = temporaryPackage({
+      'package.json': JSON.stringify({ name: 'e2e-repeats', version: '1.0.0', files: ['lib/**/*.js'] }),
+      'lib/a.js': 'import "node:fs"\n',
+      'lib/b.js': 'import "node:fs"\n',
+      'lib/c.js': 'import "node:fs"\n',
+    })
+    const result = cli(root, '--json')
+    const report = JSON.parse(result.stdout) as {
+      findings: { checkId: string, subject: string, occurrences: number, examples: unknown[] }[]
+    }
+    const filesystem = report.findings.filter(finding => finding.checkId === 'B13')
+    expect(filesystem).toHaveLength(1)
+    expect(filesystem[0]?.subject).toBe('node:fs')
+    expect(filesystem[0]?.occurrences).toBe(3)
+    expect(filesystem[0]?.examples).toHaveLength(3)
   })
 
   it('exits 2 on a file that is not an archive, naming that rather than the manifest', () => {

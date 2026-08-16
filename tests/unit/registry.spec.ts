@@ -146,6 +146,12 @@ describe('verifying downloaded bytes', () => {
 
   it('refuses an integrity string carrying only algorithms it does not implement', () => {
     expect(() => verifyIntegrity(bytes, { ...base, integrity: 'md5-abc123' })).toThrow(/no usable digest/)
+    expect(() => verifyIntegrity(bytes, { ...base, integrity: 'nonsense' })).toThrow(/no usable digest/)
+  })
+
+  it('takes the first recognised algorithm when the registry published several', () => {
+    const integrity = `md5-ignored sha256-${createHash('sha256').update(bytes).digest('base64')}`
+    expect(verifyIntegrity(bytes, { ...base, integrity }).algorithm).toBe('sha256')
   })
 })
 
@@ -169,6 +175,32 @@ describe('resolving a package', () => {
     const stub = registryStub({ ...document, dist: { ...dist, tarball: 'https://evil.test/p.tgz' } }, bytes)
     await expect(precheck('fetched-plugin', { fetch: stub.fetch }))
       .rejects.toThrow(/is not on the registry's origin/)
+  })
+
+  it('rejects a version that is not a version', () => {
+    expect(() => parseSpec('pkg@../../other')).toThrow(/not a version or dist-tag/)
+  })
+
+  it('refuses a document that is not JSON, and one carrying no tarball at all', async () => {
+    const notJson = (() => Promise.resolve(new Response('<html>502</html>', { status: 200 }))) as typeof globalThis.fetch
+    await expect(precheck('pkg', { fetch: notJson })).rejects.toThrow(/did not return JSON/)
+    const noTarball = (() =>
+      Promise.resolve(new Response(JSON.stringify({ name: 'pkg', version: '1.0.0', dist: 7 }), { status: 200 })
+      )) as typeof globalThis.fetch
+    await expect(precheck('pkg', { fetch: noTarball })).rejects.toThrow(/carries no dist\.tarball/)
+  })
+
+  it('refuses a tarball field that is not a URL, and one on a non-http scheme', async () => {
+    const serving = (tarball: unknown): typeof globalThis.fetch => (() =>
+      Promise.resolve(new Response(JSON.stringify({ name: 'pkg', version: '1.0.0', dist: { tarball } }), { status: 200 })
+      )) as typeof globalThis.fetch
+    await expect(precheck('pkg', { fetch: serving('/relative/path.tgz') })).rejects.toThrow(/is not a URL/)
+    await expect(precheck('pkg', { fetch: serving('file:///etc/passwd') })).rejects.toThrow(/not an http\(s\) URL/)
+  })
+
+  it('reads an empty body as empty rather than hanging or throwing', async () => {
+    const empty = (() => Promise.resolve(new Response(null, { status: 200 }))) as typeof globalThis.fetch
+    await expect(precheck('pkg', { fetch: empty })).rejects.toThrow(/did not return JSON/)
   })
 
   it('reports a missing package as a registry failure rather than a crash', async () => {
