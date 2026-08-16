@@ -65,8 +65,8 @@ interface Accumulator {
  * @param finding - everything but the fixed fields.
  * @returns the complete finding.
  */
-function tierB(finding: Omit<Finding, 'tier' | 'confidence'>): Finding {
-  return { ...finding, tier: 'B', confidence: 'high' }
+function tierB(finding: Omit<Finding, 'tier' | 'confidence' | 'examples' | 'occurrences'>): Finding {
+  return { ...finding, tier: 'B', confidence: 'high', examples: [finding.evidence], occurrences: 1 }
 }
 
 /**
@@ -140,6 +140,7 @@ function checkImports(file: ParsedFile, accumulator: Accumulator): void {
       accumulator.findings.push(tierB({
         checkId: 'B9',
         name: 'unmediated-process-api',
+        subject: specifier,
         severity: 'critical',
         title: `Imports \`${specifier}\`, which ${unmediated}`,
         detail: 'A mounted bundle layer is imported into the harness process at the agent\'s uid. The harness\'s own '
@@ -153,6 +154,7 @@ function checkImports(file: ParsedFile, accumulator: Accumulator): void {
       const finding = tierB({
         checkId: 'B7',
         name: 'network-egress',
+        subject: specifier,
         severity: 'medium',
         title: `Imports \`${specifier}\`, which can move bytes off the machine`,
         detail: 'Network access is a capability, not a verdict: most plugins that reach the network do so for a '
@@ -167,6 +169,7 @@ function checkImports(file: ParsedFile, accumulator: Accumulator): void {
       accumulator.findings.push(tierB({
         checkId: 'B13',
         name: 'unmediated-filesystem',
+        subject: specifier,
         severity: 'medium',
         title: `Imports \`${specifier}\` rather than using the \`ctx.fs\` service`,
         detail: 'Reads and writes through the Node filesystem API are invisible to `fs/write-intent`, '
@@ -190,6 +193,7 @@ function checkSeamReplacement(file: ParsedFile, node: ts.CallExpression, accumul
   accumulator.findings.push(tierB({
     checkId: 'B1',
     name: 'seam-replacement',
+    subject: `${seam}.${method}`,
     severity: critical ? 'critical' : 'high',
     title: `Replaces the \`${seam}\` capability seam via \`.${method}()\``,
     detail: `\`${seam}\` is a catalogued core service. Providing it from a third-party layer substitutes this `
@@ -212,6 +216,7 @@ function checkSystemPrompt(file: ParsedFile, node: ts.CallExpression, accumulato
   accumulator.findings.push(tierB({
     checkId: 'B5',
     name: 'system-prompt-mutation',
+    subject: isAssembleListener ? 'system-prompt/assemble' : callee.name.text,
     severity: 'high',
     title: isAssembleListener
       ? 'Listens on `system-prompt/assemble`'
@@ -233,6 +238,7 @@ function checkNestedMount(file: ParsedFile, node: ts.CallExpression, accumulator
   accumulator.findings.push(tierB({
     checkId: 'B11',
     name: 'nested-plugin-mount',
+    subject: 'runtime-mount',
     severity: 'high',
     title: 'Mounts further plugins at runtime',
     detail: 'A layer that mounts other layers moves the analysis target: what actually runs is decided by code '
@@ -281,6 +287,7 @@ function checkDynamicCode(file: ParsedFile, node: ts.Node, accumulator: Accumula
   accumulator.findings.push(tierB({
     checkId: 'B12',
     name: 'dynamic-code-construction',
+    subject: 'runtime-code',
     severity: 'high',
     title: 'Builds and runs code at runtime',
     detail: 'Whatever this evaluates is not in the package and cannot be analysed from it. Construction alone is '
@@ -294,10 +301,14 @@ function checkDynamicCode(file: ParsedFile, node: ts.Node, accumulator: Accumula
 /** B6 — reading a credential. */
 function checkCredentialRead(file: ParsedFile, node: ts.Node, accumulator: Accumulator): void {
   let title: string | null = null
+  let subject = ''
   if (ts.isPropertyAccessExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
     const outer = node.expression
     if (ts.isIdentifier(outer.expression) && outer.expression.text === 'process' && outer.name.text === 'env') {
-      if (SECRET_ENV_KEY.test(node.name.text)) title = `Reads the environment variable \`${node.name.text}\``
+      if (SECRET_ENV_KEY.test(node.name.text)) {
+        title = `Reads the environment variable \`${node.name.text}\``
+        subject = `env:${node.name.text}`
+      }
     }
   }
   if (ts.isElementAccessExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
@@ -306,18 +317,22 @@ function checkCredentialRead(file: ParsedFile, node: ts.Node, accumulator: Accum
     if (ts.isIdentifier(outer.expression) && outer.expression.text === 'process' && outer.name.text === 'env'
       && key !== null && SECRET_ENV_KEY.test(key)) {
       title = `Reads the environment variable \`${key}\``
+      subject = `env:${key}`
     }
   }
   if ((ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) && CREDENTIAL_PATH.test(node.text)) {
     title = `References the credential location \`${node.text}\``
+    subject = `path:${node.text}`
   }
   if (ts.isPropertyAccessExpression(node) && node.name.text === 'credentials' && ts.isIdentifier(node.expression)) {
     title = 'Reads the `credentials` service'
+    subject = 'service:credentials'
   }
   if (title === null) return
   const finding = tierB({
     checkId: 'B6',
     name: 'credential-read',
+    subject,
     severity: 'medium',
     title,
     detail: 'Reading a credential is a capability, not a verdict — a plugin that authenticates to its own service '
@@ -339,6 +354,7 @@ function checkToolDescription(file: ParsedFile, node: ts.Node, accumulator: Accu
     accumulator.findings.push(tierB({
       checkId: 'B10',
       name: 'model-visible-injection',
+      subject: match.ruleId,
       severity: 'high',
       title: `Tool description ${match.meaning}`,
       detail: `Heuristic \`${match.ruleId}\` matched a tool \`description\`, which is prompt text the model receives `
@@ -357,6 +373,7 @@ function checkNetworkGlobals(file: ParsedFile, node: ts.Node, accumulator: Accum
   const finding = tierB({
     checkId: 'B7',
     name: 'network-egress',
+    subject: callee.text,
     severity: 'medium',
     title: `Calls \`${callee.text}()\``,
     detail: 'The harness\'s own dynamic-package sandbox traps `fetch` and redirects it to the `ctx.web` service, so '
@@ -417,6 +434,7 @@ function pairFinding(accumulator: Accumulator): Finding | null {
   return tierB({
     checkId: 'B8',
     name: 'exfiltration-capability',
+    subject: 'credential-and-egress',
     severity,
     title: 'This package can read a credential and can make a network call',
     detail: 'This is a capability, not a dataflow. The tool found a credential read at '

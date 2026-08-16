@@ -44,7 +44,23 @@ export interface Evidence {
   readonly snippet?: string
 }
 
-/** One thing the inspector believes warrants a decision. */
+/**
+ * How many example sites one finding carries. Three is enough to show a
+ * pattern — one file, a second confirming it is not isolated, a third for
+ * spread — and few enough that the report stays readable when a package
+ * imports `node:fs` from ninety files.
+ */
+export const MAX_EXAMPLES = 3
+
+/**
+ * One thing the inspector believes warrants a decision, in one package.
+ *
+ * A finding is per package, not per syntax site. A package that imports
+ * `node:fs` from eleven files has one B13 finding with `occurrences: 11`, not
+ * eleven findings — the eleventh import warrants no decision the first did not
+ * already warrant, and a report that lists it eleven times buries the one
+ * finding that does.
+ */
 export interface Finding {
   /** Catalogue id from PLAN.md §6, e.g. `A2`. Stable across releases. */
   readonly checkId: string
@@ -53,11 +69,24 @@ export interface Finding {
   readonly tier: Tier
   readonly severity: Severity
   readonly confidence: Confidence
+  /**
+   * What this finding is about, independent of where it was seen: the module
+   * specifier, the row id, the seam name, the matched rule. Two findings that
+   * share a `checkId` and a `subject` are the same finding observed twice, and
+   * are collapsed into one. Stable across releases, so a gate can allow a
+   * specific `B13`/`node:fs` without allowing every `B13`.
+   */
+  readonly subject: string
   /** One line naming what was found. */
   readonly title: string
   /** Why it matters, in terms of what the harness does with the declaration. */
   readonly detail: string
+  /** The first site the check matched. Always equal to `examples[0]`. */
   readonly evidence: Evidence
+  /** Up to {@link MAX_EXAMPLES} sites, in the order they were found. */
+  readonly examples: readonly Evidence[]
+  /** How many sites the check matched in this package. At least 1. */
+  readonly occurrences: number
   /**
    * The one-line evasion for this specific check, or `null` when there is none.
    * Non-null for every Tier B and Tier C check. Carried inside the finding
@@ -160,9 +189,15 @@ export interface RegistryProvenance {
   readonly tarballBytes: number
 }
 
-/** The complete inspection result, and the shape of `--json` output. */
+/**
+ * The complete inspection result, and the shape of `--json` output.
+ *
+ * Version 2 is the first release where a finding is per package rather than per
+ * syntax site: every finding gained `subject`, `examples` and `occurrences`,
+ * and `target.kind` gained `registry`.
+ */
 export interface Report {
-  readonly schemaVersion: 1
+  readonly schemaVersion: 2
   readonly tool: {
     readonly name: string
     readonly version: string
@@ -203,6 +238,47 @@ export function compareFindings(a: Finding, b: Finding): number {
   const byFile = a.evidence.file.localeCompare(b.evidence.file)
   if (byFile !== 0) return byFile
   return (a.evidence.path ?? '').localeCompare(b.evidence.path ?? '')
+}
+
+/**
+ * Collapse per-site findings into one finding per check per subject.
+ *
+ * This is where the report stops being a list of syntax sites and becomes a
+ * list of decisions. The count and the examples are kept, so nothing a reader
+ * would act on is lost: the number says how widespread it is, the examples say
+ * where to look first, and both live in the finding rather than in a footnote.
+ *
+ * Order is preserved: the first occurrence of each group decides where the
+ * group sits, and `compareFindings` sorts afterwards.
+ * @param findings - findings as the checks emitted them, one per site.
+ * @param maxExamples - how many sites to keep; defaults to {@link MAX_EXAMPLES}.
+ * @returns one finding per `checkId` and `subject`.
+ */
+export function aggregateFindings(
+  findings: readonly Finding[], maxExamples: number = MAX_EXAMPLES,
+): Finding[] {
+  const groups = new Map<string, { finding: Finding, examples: Evidence[], occurrences: number }>()
+  for (const finding of findings) {
+    const key = `${finding.checkId} ${finding.subject}`
+    const group = groups.get(key)
+    if (group === undefined) {
+      groups.set(key, {
+        finding,
+        examples: [...finding.examples].slice(0, maxExamples),
+        occurrences: finding.occurrences,
+      })
+      continue
+    }
+    group.occurrences += finding.occurrences
+    for (const example of finding.examples) {
+      if (group.examples.length < maxExamples) group.examples.push(example)
+    }
+  }
+  return [...groups.values()].map(group => ({
+    ...group.finding,
+    examples: group.examples,
+    occurrences: group.occurrences,
+  }))
 }
 
 /**

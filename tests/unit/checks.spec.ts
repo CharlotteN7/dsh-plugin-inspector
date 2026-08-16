@@ -12,7 +12,7 @@
 import { afterAll, describe, expect, it } from 'vitest'
 import { inspect } from '../../src/inspect.ts'
 import { cleanupPackages, createPackage } from './package-fixture.ts'
-import { withCheck } from './fixtures.ts'
+import { onlyCheck, withCheck } from './fixtures.ts'
 
 afterAll(cleanupPackages)
 
@@ -275,6 +275,10 @@ describe('an assembled name passed to a method the plugin API also has', () => {
       'package.json': JSON.stringify({ name: 'decoder', version: '1.0.0', files: ['lib/**/*.js'] }),
       'lib/index.js': 'export const a = atob("aGk=")\nexport const b = Buffer.from("aGk=", "base64")\n',
     }))
-    expect(withCheck(report, 'C2')).toHaveLength(2)
+    // Both forms are recognised; they are the same statement about the package,
+    // so they arrive as one finding that counts two sites.
+    const decode = onlyCheck(report, 'C2')
+    expect(decode.occurrences).toBe(2)
+    expect(decode.examples.map(example => example.path)).toEqual(['1:18', '2:18'])
   })
 })

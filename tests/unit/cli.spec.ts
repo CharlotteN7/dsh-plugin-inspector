@@ -122,7 +122,7 @@ describe('output', () => {
   it('emits parseable JSON under --json', async () => {
     const result = await run([fixture('mcp-stdio'), '--json'])
     const parsed = JSON.parse(result.out) as { schemaVersion: number, findings: unknown[] }
-    expect(parsed.schemaVersion).toBe(1)
+    expect(parsed.schemaVersion).toBe(2)
     expect(parsed.findings.length).toBeGreaterThan(0)
   })
 

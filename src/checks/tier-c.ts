@@ -40,8 +40,8 @@ const NAMED_TARGET_CALLEES: ReadonlySet<string> = new Set([
  * @param finding - everything but the fixed fields.
  * @returns the complete finding.
  */
-function tierC(finding: Omit<Finding, 'tier' | 'confidence'>): Finding {
-  return { ...finding, tier: 'C', confidence: 'moderate' }
+function tierC(finding: Omit<Finding, 'tier' | 'confidence' | 'examples' | 'occurrences'>): Finding {
+  return { ...finding, tier: 'C', confidence: 'moderate', examples: [finding.evidence], occurrences: 1 }
 }
 
 /** C1 — source that is not written to be read. */
@@ -64,12 +64,13 @@ function checkMinification(input: CheckInput): Finding[] {
     findings.push(tierC({
       checkId: 'C1',
       name: 'minified-source',
+      subject: 'minified-source',
       severity: 'medium',
-      title: `\`${path}\` is minified or generated`,
-      detail: `Longest line is ${longest} characters across ${lines.length} line(s), and lines that long are `
-        + `${Math.round(longBytes * 100 / Math.max(text.length, 1))}% of the file. Capability detection reads `
-        + 'syntax, and it reads minified syntax no better than a person does. Every Tier B negative for this '
-        + 'package is unreliable while this file is in it.',
+      title: 'Ships source that is minified or generated',
+      detail: `In \`${path}\` the longest line is ${longest} characters across ${lines.length} line(s), and lines `
+        + `that long are ${Math.round(longBytes * 100 / Math.max(text.length, 1))}% of the file. Capability `
+        + 'detection reads syntax, and it reads minified syntax no better than a person does. Every Tier B '
+        + 'negative for this package is unreliable while a file like this is in it.',
       evidence: { file: path, path: '1:1', snippet: snippet(lines[0] ?? '') },
       bypass: 'none — this finding is about the analysis, not about the plugin',
     }))
@@ -88,8 +89,9 @@ function checkDynamicDispatch(input: CheckInput): Finding[] {
       findings.push(tierC({
         checkId: 'C2',
         name: 'dynamic-dispatch',
+        subject: what,
         severity: 'high',
-        title: `\`${path}\` ${what}`,
+        title: `Shipped source ${what}`,
         detail: 'Every Tier B check matches a literal name. A name assembled at runtime defeats all of them, so no '
           + 'Tier B negative for this package carries any information. A Tier B positive still does — the tool saw '
           + 'what it saw.',
@@ -214,6 +216,7 @@ function checkSourcelessBuild(input: CheckInput): Finding[] {
     findings.push(tierC({
       checkId: 'C3',
       name: 'sourceless-build-output',
+      subject: 'no-authored-source',
       severity: 'low',
       title: `Ships ${built.length} built file(s) and no source`,
       detail: 'What runs is the built output, so that is what this tool analysed — but there is nothing in the '
@@ -227,8 +230,9 @@ function checkSourcelessBuild(input: CheckInput): Finding[] {
     findings.push(tierC({
       checkId: 'C6',
       name: 'minified-artifact',
+      subject: 'min-js',
       severity: 'low',
-      title: `\`${path}\` is a minified artifact`,
+      title: 'Ships a minified artifact',
       detail: 'A `.min.js` file is output, not source. It was still parsed, but nothing about its readability '
         + 'supports a confident negative.',
       evidence: { file: path },
@@ -249,6 +253,7 @@ function checkUnreadableFiles(input: CheckInput): Finding[] {
   return [...byReason].map(([reason, paths]) => tierC({
     checkId: 'C4',
     name: 'unreadable-payload',
+    subject: reason,
     severity: reason === 'binary' ? 'medium' : 'low',
     title: `${paths.length} file(s) were not analysed (${reason})`,
     detail: reason === 'binary'
@@ -265,6 +270,7 @@ function checkPatchWalkLimit(input: CheckInput): Finding[] {
   return input.patches.filter(patch => patch.limit !== null).map(patch => tierC({
     checkId: 'C5',
     name: 'patch-walk-truncated',
+    subject: patch.file,
     severity: 'high',
     title: `\`${patch.file}\` was only read in part (${patch.limit === 'depth' ? 'nesting' : 'node count'} ceiling)`,
     detail: patch.limit === 'depth'

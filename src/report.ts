@@ -48,19 +48,29 @@ export function renderJson(report: Report): string {
  * @returns the rendered lines.
  */
 function renderFinding(finding: Finding, paint: (code: string, text: string) => string): string[] {
-  const where = finding.evidence.path === undefined
-    ? finding.evidence.file
-    : `${finding.evidence.file}:${finding.evidence.path}`
+  const count = finding.occurrences > 1 ? ` ${paint('dim', `(×${finding.occurrences})`)}` : ''
   const lines = [
-    `${paint(finding.severity, LABEL[finding.severity])}  ${paint('bold', finding.title)}`,
+    `${paint(finding.severity, LABEL[finding.severity])}  ${paint('bold', finding.title)}${count}`,
     `          ${paint('dim', `${finding.checkId} ${finding.name} · tier ${finding.tier} · confidence ${finding.confidence}`)}`,
-    `          ${paint('dim', where)}`,
   ]
+  for (const example of finding.examples) lines.push(`          ${paint('dim', locate(example))}`)
+  if (finding.occurrences > finding.examples.length) {
+    lines.push(`          ${paint('dim', `… and ${finding.occurrences - finding.examples.length} more site(s)`)}`)
+  }
   if (finding.evidence.snippet !== undefined) lines.push(`          ${paint('dim', `> ${finding.evidence.snippet}`)}`)
   for (const line of wrap(finding.detail, 88)) lines.push(`          ${line}`)
   if (finding.bypass !== null) lines.push(`          ${paint('dim', `bypass: ${finding.bypass}`)}`)
   lines.push('')
   return lines
+}
+
+/**
+ * Render one example site as `file:locator`.
+ * @param evidence - the site.
+ * @returns the location.
+ */
+function locate(evidence: Finding['evidence']): string {
+  return evidence.path === undefined ? evidence.file : `${evidence.file}:${evidence.path}`
 }
 
 /**

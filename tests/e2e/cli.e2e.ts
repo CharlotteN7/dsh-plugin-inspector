@@ -94,7 +94,7 @@ describe('the built binary', () => {
       findings: { checkId: string, severity: string }[]
     }
     expect(result.code).toBe(1)
-    expect(report.schemaVersion).toBe(1)
+    expect(report.schemaVersion).toBe(2)
     expect(report.analysis.negativesReliable).toBe(true)
     expect(report.findings.some(finding => finding.checkId === 'B8')).toBe(true)
   })

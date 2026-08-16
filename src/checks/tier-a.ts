@@ -88,8 +88,8 @@ const INERT_CLASSES: ReadonlySet<ExpressionClass> = new Set<ExpressionClass>(['l
  * @param finding - everything but the fixed fields.
  * @returns the complete finding.
  */
-function tierA(finding: Omit<Finding, 'tier' | 'confidence' | 'bypass'>): Finding {
-  return { ...finding, tier: 'A', confidence: 'certain', bypass: null }
+function tierA(finding: Omit<Finding, 'tier' | 'confidence' | 'bypass' | 'examples' | 'occurrences'>): Finding {
+  return { ...finding, tier: 'A', confidence: 'certain', bypass: null, examples: [finding.evidence], occurrences: 1 }
 }
 
 /**
@@ -150,6 +150,7 @@ function checkDisabledRows(input: CheckInput): Finding[] {
         findings.push(tierA({
           checkId: 'A19',
           name: 'core-row-force-enabled',
+          subject: override.id,
           severity: 'medium',
           title: `Patch layer re-enables the core row "${override.id}"`,
           detail: 'The loader coerces `disabled` with `Boolean()`, so this value leaves the row running. Because '
@@ -164,6 +165,7 @@ function checkDisabledRows(input: CheckInput): Finding[] {
         findings.push(tierA({
           checkId: 'A2',
           name: 'security-row-disabled',
+          subject: override.id,
           severity: 'critical',
           title: `Patch layer disables the core row "${override.id}"`,
           detail: `Bundle patches apply after @deepseek-ai/dsh-base, so this layer switches off ${stops}. `
@@ -179,6 +181,7 @@ function checkDisabledRows(input: CheckInput): Finding[] {
       findings.push(tierA({
         checkId: 'A3',
         name: 'core-row-disabled',
+        subject: override.id,
         severity,
         title: `Patch layer disables the core row "${override.id}"`,
         detail: `The row comes from ${coreRowOrigin(override.id)}, and this layer applies after it, so the row `
@@ -206,6 +209,7 @@ function checkOverriddenRows(input: CheckInput): Finding[] {
         findings.push(tierA({
           checkId: 'A4',
           name: 'patch-name-guard-mismatch',
+          subject: override.id,
           severity: 'medium',
           title: `Patch for "${override.id}" names ${override.nameGuard}, but that row is ${coreName}`,
           detail: 'applyEntryPatches treats `name` on a non-insert patch as an assertion guard: on mismatch it '
@@ -221,6 +225,7 @@ function checkOverriddenRows(input: CheckInput): Finding[] {
       findings.push(tierA({
         checkId: 'A5',
         name: 'core-row-overridden',
+        subject: `${override.id}:${rewritten.join(',')}`,
         severity: isSecurity ? 'high' : 'medium',
         title: `Patch layer rewrites ${rewritten.map(key => `\`${key}\``).join(', ')} on the core row "${override.id}"`,
         detail: `The row is ${coreName}. Patch overrides are shallow whole-value replacements, not merges, so `
@@ -266,6 +271,7 @@ function liveExpression(file: string, site: ExpressionSite): Finding {
   return tierA({
     checkId: 'A6',
     name: 'js-expression',
+    subject: `${site.slot}:${site.classification}`,
     severity: EXPRESSION_SEVERITY[site.classification],
     title: `\`!!js\` expression in a row's \`${site.slot}\` ${EXPRESSION_MEANING[site.classification]}`,
     detail: `The loader evaluates this with new Function('ctx', 'expr', 'with (ctx) { return eval(expr) }') — `
@@ -288,6 +294,7 @@ function inertExpression(file: string, site: ExpressionSite): Finding {
   return tierA({
     checkId: 'A7',
     name: 'js-expression-inert',
+    subject: 'inert-slot',
     severity: 'medium',
     title: '`!!js` in a field the loader never interpolates',
     detail: 'The loader interpolates only a row\'s `config` (recursively) and the top-level node of its `disabled`. '
@@ -304,6 +311,7 @@ function checkPatchFailures(input: CheckInput): Finding[] {
     ? tierA({
       checkId: 'A8',
       name: 'single-bang-js-tag',
+      subject: failure.file,
       severity: 'medium',
       title: 'Patch layer uses the `!js` tag, which no harness accepts',
       detail: 'The dialect registers exactly one custom tag, `tag:yaml.org,2002:js`, whose shorthand is `!!js`. '
@@ -314,6 +322,7 @@ function checkPatchFailures(input: CheckInput): Finding[] {
     : tierA({
       checkId: 'A17',
       name: 'patch-parse-error',
+      subject: failure.file,
       severity: 'medium',
       title: 'Patch layer does not parse',
       detail: 'The declared patch layer cannot be read as a Cordis entry list, so mounting this package fails the '
@@ -338,6 +347,7 @@ function checkInsertedModules(input: CheckInput): Finding[] {
       findings.push(tierA({
         checkId: 'A9',
         name: 'insert-undeclared-module',
+        subject: name,
         severity: isCore ? 'medium' : 'high',
         title: `Inserted row "${row.id ?? '(unnamed)'}" mounts ${name}, which this package does not declare`,
         detail: isCore
@@ -369,6 +379,7 @@ function checkMcpRows(input: CheckInput): Finding[] {
       findings.push(tierA({
         checkId: 'A10',
         name: 'mcp-server-row',
+        subject: shown,
         severity: stdio ? 'critical' : 'high',
         title: stdio
           ? `Patch layer starts a local MCP server by running \`${shown}\``
@@ -404,6 +415,7 @@ function checkSkillRootRedirect(input: CheckInput): Finding[] {
     findings.push(tierA({
       checkId: 'A15',
       name: 'skill-root-redirected',
+      subject: keys.join(','),
       severity: 'high',
       title: `Patch layer redirects skill discovery via ${keys.map(key => `\`${key}\``).join(', ')}`,
       detail: 'Skill files reach the model verbatim, unescaped and uncapped. This row changes which directories '
@@ -429,6 +441,7 @@ function checkManifest(input: CheckInput): Finding[] {
     findings.push(tierA({
       checkId: 'A1',
       name: 'install-lifecycle-script',
+      subject: name,
       severity: 'medium',
       title: `Declares a \`${name}\` script, which runs at install time once allowed`,
       detail: 'This command would run at the user\'s uid as part of `dsh plugin add`, before the user has read a '
@@ -445,6 +458,7 @@ function checkManifest(input: CheckInput): Finding[] {
     findings.push(tierA({
       checkId: 'A22',
       name: 'installs-command',
+      subject: command,
       severity: 'low',
       title: `Installs the command \`${command}\` on the user's PATH`,
       detail: 'A `bin` entry is linked into the profile\'s `node_modules/.bin` at install time. It is not run by '
@@ -459,6 +473,7 @@ function checkManifest(input: CheckInput): Finding[] {
     findings.push(tierA({
       checkId: 'A20',
       name: 'profile-mounts-bundles',
+      subject: 'dsh.profile.bundles',
       severity: 'high',
       title: `Declares a profile that mounts ${profileBundles.length} bundle(s)`,
       detail: 'A `dsh.profile.bundles` list makes this package a profile rather than a layer: the launcher resolves '
@@ -478,6 +493,7 @@ function checkManifest(input: CheckInput): Finding[] {
     findings.push(tierA({
       checkId: 'A11',
       name: 'non-registry-dependency',
+      subject: `${field}.${name}`,
       severity: 'high',
       title: `Depends on ${name} through a non-registry specifier`,
       detail: 'The code behind this specifier can change without the version of this package changing, so nothing '
@@ -491,6 +507,7 @@ function checkManifest(input: CheckInput): Finding[] {
     findings.push(tierA({
       checkId: 'A13',
       name: 'no-files-allowlist',
+      subject: 'files',
       severity: 'low',
       title: 'No `files` allowlist in package.json',
       detail: 'Without an allowlist the published tarball is whatever was in the working tree minus npm\'s default '
@@ -506,6 +523,7 @@ function checkManifest(input: CheckInput): Finding[] {
       findings.push(tierA({
         checkId: 'A14',
         name: 'bundle-patch-escapes-package',
+        subject: 'dsh.bundle.patch',
         severity: 'critical',
         title: 'The declared `dsh.bundle.patch` path climbs out of the package directory',
         detail: 'The launcher resolves the patch as join(packageDir, declared) with no sanitisation, and `..` '
@@ -517,6 +535,7 @@ function checkManifest(input: CheckInput): Finding[] {
       findings.push(tierA({
         checkId: 'A16',
         name: 'bundle-patch-missing',
+        subject: 'dsh.bundle.patch',
         severity: 'medium',
         title: 'The declared `dsh.bundle.patch` file is not in the package',
         detail: 'The package declares a mounted patch layer whose file is absent — commonly a `files` allowlist '
@@ -532,6 +551,7 @@ function checkManifest(input: CheckInput): Finding[] {
     findings.push(tierA({
       checkId: 'A18',
       name: 'manifest-defect',
+      subject: defect,
       severity: 'low',
       title: `Malformed package.json field: ${defect}`,
       detail: 'The field was ignored. A manifest that npm and the harness read differently is worth knowing about.',
@@ -547,6 +567,7 @@ function checkModelVisibleText(input: CheckInput): Finding[] {
   return [tierA({
     checkId: 'A12',
     name: 'model-visible-text-shipped',
+    subject: 'shipped-instructions',
     severity: 'low',
     title: `Ships ${input.modelVisibleFiles.length} model-visible instruction file(s)`,
     detail: 'Skill and agent-instruction markdown reaches the model verbatim, unescaped and uncapped. Shipping it '
@@ -569,6 +590,7 @@ function checkServiceRemapping(input: CheckInput): Finding[] {
         findings.push(tierA({
           checkId: 'A23',
           name: 'row-service-remapping',
+          subject: `${field}:${seams.join(',')}`,
           severity: critical ? 'critical' : 'high',
           title: `Inserted row "${row.id ?? '(unnamed)'}" re-maps ${seams.map(name => `\`${name}\``).join(', ')} via \`${field}\``,
           detail: field === 'isolate'
@@ -604,9 +626,11 @@ function checkInjectionText(input: CheckInput): Finding[] {
     const text = input.source.files.get(path)
     if (text === undefined) continue
     for (const match of scanInjection(text)) {
+      const evidence = { file: path, path: lineColumn(text, match.index), snippet: snippet(match.excerpt) }
       findings.push({
         checkId: 'A21',
         name: 'model-visible-injection',
+        subject: match.ruleId,
         tier: 'A',
         severity: 'high',
         confidence: 'certain',
@@ -616,7 +640,9 @@ function checkInjectionText(input: CheckInput): Finding[] {
           + 'model, which is why this is a verdict about the text rather than a capability report. Whether the '
           + 'sentence is an instruction or a discussion of one is a judgement this tool cannot make: the pattern '
           + 'will miss a rephrasing, and it can fire on a document that legitimately quotes an attack.',
-        evidence: { file: path, path: lineColumn(text, match.index), snippet: snippet(match.excerpt) },
+        evidence,
+        examples: [evidence],
+        occurrences: 1,
         bypass: null,
       })
     }

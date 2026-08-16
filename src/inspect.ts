@@ -22,6 +22,7 @@ import { HARNESS_REFERENCE } from './knowledge.ts'
 import { parseManifest } from './manifest.ts'
 import {
   SEVERITY_RANK,
+  aggregateFindings,
   compareFindings,
   summarize,
   type Confidence,
@@ -153,7 +154,10 @@ export function analyze(source: PluginSource, registry?: RegistryProvenance): Re
     ...runTierB(input).map(finding => ({ ...finding, confidence: downgrade(finding.confidence, degraded) })),
     ...tierC,
   ]
-  const findings = [...raw].sort(compareFindings)
+  // Aggregate before sorting: the report is a list of decisions, one per check
+  // per subject, and the count travels inside the finding. A package importing
+  // `node:fs` from eleven files states that once.
+  const findings = aggregateFindings(raw).sort(compareFindings)
 
   const facts: Facts = {
     packageName: manifest.name,
@@ -182,7 +186,7 @@ export function analyze(source: PluginSource, registry?: RegistryProvenance): Re
   }
 
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     tool: { name: TOOL_NAME, version: TOOL_VERSION, harnessReference: HARNESS_REFERENCE },
     target: { kind: source.kind, path: source.path, ...registry === undefined ? {} : { registry } },
     facts,
