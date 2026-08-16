@@ -141,7 +141,10 @@ function checkImports(file: ParsedFile, accumulator: Accumulator): void {
         checkId: 'B9',
         name: 'unmediated-process-api',
         subject: specifier,
-        severity: 'critical',
+        // Raised to `high` by `escalateProcessImports` when this package also
+        // reads a credential or reaches the network. On its own it is a
+        // capability half the ecosystem has.
+        severity: 'medium',
         title: `Imports \`${specifier}\`, which ${unmediated}`,
         detail: 'A mounted bundle layer is imported into the harness process at the agent\'s uid. The harness\'s own '
           + 'dynamic-package sandbox denies untrusted code `require` outright and redirects it to ctx services; a '
@@ -418,7 +421,40 @@ export function runTierB(input: CheckInput): Finding[] {
   }
   const pair = pairFinding(accumulator)
   if (pair !== null) accumulator.findings.push(pair)
-  return accumulator.findings
+  return escalateProcessImports(accumulator)
+}
+
+/**
+ * B9 — raise a process-API import from `medium` to `high` when the same package
+ * also reads a credential or reaches the network.
+ *
+ * A bare `import 'node:child_process'` was hardcoded `critical` and fired on
+ * half the published ecosystem. A severity that common is not a severity: it
+ * pushed a package disabling `fs-sandbox` down a list of a thousand identical
+ * criticals. Spawning a process is what a plugin that wraps `git`, `ffmpeg` or
+ * a language server does, and the tool cannot tell that from the other thing.
+ *
+ * The pairing is exactly the one B8 already uses — a credential read *and* a
+ * network call in the same package — and for the same reason: the combination
+ * is what changes the question from "can it run a program" to "can it run a
+ * program with something worth sending, and somewhere to send it". Either half
+ * alone is not enough, and it would not narrow anything if it were: 68 % of
+ * published plugins reach the network at all.
+ *
+ * That pairing is still a capability, not a dataflow, so it stops at `high`.
+ * @param accumulator - the accumulated Tier B state.
+ * @returns the findings, with B9 severities settled.
+ */
+function escalateProcessImports(accumulator: Accumulator): Finding[] {
+  const paired = accumulator.credentialRead !== null && accumulator.networkCall !== null
+  if (!paired) return accumulator.findings
+  return accumulator.findings.map(finding => finding.checkId !== 'B9' ? finding : {
+    ...finding,
+    severity: 'high' as Severity,
+    detail: `${finding.detail} This package also reads a credential or reaches the network, which is why this is `
+      + 'graded above a bare process import: the two capabilities together are what an exfiltration needs. It '
+      + 'remains a capability report — nothing here shows the two are connected.',
+  })
 }
 
 /**
@@ -430,7 +466,11 @@ function pairFinding(accumulator: Accumulator): Finding | null {
   const credential = accumulator.credentialRead
   const network = accumulator.networkCall
   if (credential === null || network === null) return null
-  const severity: Severity = 'critical'
+  // Not critical. This pair fires on 18 % of the published ecosystem — every
+  // telemetry client and every authenticated API client trips it — and the
+  // finding's own text says it is not a verdict. A severity that says "do not
+  // treat this as a verdict" cannot be the top one.
+  const severity: Severity = 'high'
   return tierB({
     checkId: 'B8',
     name: 'exfiltration-capability',

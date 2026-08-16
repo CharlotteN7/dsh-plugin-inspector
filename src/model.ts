@@ -221,14 +221,35 @@ export interface Report {
 }
 
 /**
- * Order findings for display: most severe first, then by tier (A before B
- * before C, since A carries verdicts), then by check id, then by evidence
- * location. Total and deterministic, so two runs diff cleanly.
+ * Whether a finding is a verdict rather than a capability report.
+ *
+ * Tier A reads a declaration the harness must read literally in order to act on
+ * it, so it says what the package *does*. Tier B and Tier C say what it *can*
+ * do and how well it could be read. Those are different kinds of statement, and
+ * ranking them against each other by severity puts "this package can open a
+ * socket" above "this package's patch layer switches off the approval row".
+ * @param finding - the finding.
+ * @returns 0 for a verdict, 1 for a capability or analysis report.
+ */
+function rank(finding: Finding): number {
+  return finding.tier === 'A' ? 0 : 1
+}
+
+/**
+ * Order findings for display: verdicts first, then most severe, then by tier,
+ * then by check id, then by evidence location. Total and deterministic, so two
+ * runs diff cleanly.
+ *
+ * Tier A outranks every Tier B finding whatever their severities, because a
+ * verdict and a capability report answer different questions and the verdict is
+ * the one the reader came for. Within each group severity decides.
  * @param a - left finding.
  * @param b - right finding.
  * @returns negative when `a` sorts first.
  */
 export function compareFindings(a: Finding, b: Finding): number {
+  const byRank = rank(a) - rank(b)
+  if (byRank !== 0) return byRank
   const bySeverity = SEVERITY_RANK[b.severity] - SEVERITY_RANK[a.severity]
   if (bySeverity !== 0) return bySeverity
   const byTier = a.tier.localeCompare(b.tier)

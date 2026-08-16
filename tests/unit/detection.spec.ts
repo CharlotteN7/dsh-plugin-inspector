@@ -82,7 +82,9 @@ describe('a credential read paired with a network call', () => {
     const report = await inspect(fixture('credential-exfil'))
     expect(onlyCheck(report, 'B6').title).toContain('DEEPSEEK_API_KEY')
     expect(onlyCheck(report, 'B7').title).toContain('fetch()')
-    expect(onlyCheck(report, 'B8').severity).toBe('critical')
+    // High, not critical: the pair fires on 18 % of published plugins, and the
+    // finding's own text says it is not a verdict.
+    expect(onlyCheck(report, 'B8').severity).toBe('high')
   })
 
   it('says the pair is a capability and not a proven dataflow', async () => {

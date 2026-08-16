@@ -29,7 +29,7 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { TOOL_VERSION } from '../src/inspect.ts'
-import { SEVERITIES, type Report, type Severity } from '../src/model.ts'
+import { SEVERITIES, SEVERITY_RANK, type Report, type Severity } from '../src/model.ts'
 import { inspectFromNpm, precheck } from '../src/npm.ts'
 import { DEFAULT_REGISTRY } from '../src/registry.ts'
 
@@ -72,7 +72,17 @@ interface PackageResult {
   readonly severities: Readonly<Record<Severity, number>>
   /** How many findings each check produced in this package. */
   readonly checks: Readonly<Record<string, number>>
+  /** The worst severity each check reached in this package. */
+  readonly checkSeverities: Readonly<Record<string, Severity>>
   readonly degraded: boolean
+}
+
+/** How often one check fired across the corpus. */
+interface CheckStats {
+  readonly findings: number
+  readonly packages: number
+  /** Packages where this check's worst finding was at each severity. */
+  readonly worst: Readonly<Record<Severity, number>>
 }
 
 /** The whole measurement. */
@@ -88,8 +98,13 @@ interface Baseline {
   readonly cleanPackages: number
   readonly withHighOrCritical: number
   readonly medianFindingsPerPackage: number
-  /** Per check: how many findings it produced, and in how many packages it fired. */
-  readonly checks: Readonly<Record<string, { readonly findings: number, readonly packages: number }>>
+  /**
+   * Per check: how many findings it produced, in how many packages it fired,
+   * and in how many of those it reached each severity. The share of the corpus
+   * a check fires on at `critical` is the calibration number: a severity that
+   * common on legitimate packages is not a severity.
+   */
+  readonly checks: Readonly<Record<string, CheckStats>>
   readonly packages: readonly PackageResult[]
 }
 
@@ -225,16 +240,26 @@ async function scan(entry: CorpusEntry): Promise<PackageResult> {
       findings: 0,
       severities: empty,
       checks: {},
+      checkSeverities: {},
       degraded: false,
     }
   }
   const checks: Record<string, number> = {}
-  for (const finding of report.findings) checks[finding.checkId] = (checks[finding.checkId] ?? 0) + 1
+  const worst: Record<string, Severity> = {}
+  for (const finding of report.findings) {
+    checks[finding.checkId] = (checks[finding.checkId] ?? 0) + 1
+    const seen = worst[finding.checkId]
+    if (seen === undefined || SEVERITY_RANK[finding.severity] > SEVERITY_RANK[seen]) {
+      worst[finding.checkId] = finding.severity
+    }
+  }
+  const byId = ([a]: [string, unknown], [b]: [string, unknown]): number => a.localeCompare(b, 'en', { numeric: true })
   return {
     ...entry,
     findings: report.findings.length,
     severities: report.summary,
-    checks: Object.fromEntries(Object.entries(checks).sort(([a], [b]) => a.localeCompare(b, 'en', { numeric: true }))),
+    checks: Object.fromEntries(Object.entries(checks).sort(byId)),
+    checkSeverities: Object.fromEntries(Object.entries(worst).sort(byId)),
     degraded: !report.analysis.negativesReliable,
   }
 }
@@ -261,12 +286,17 @@ function median(values: readonly number[]): number {
 function summarise(corpus: Corpus, results: readonly PackageResult[]): Baseline {
   const scanned = results.filter(result => result.error === undefined)
   const severities: Record<Severity, number> = { critical: 0, high: 0, medium: 0, low: 0 }
-  const checks: Record<string, { findings: number, packages: number }> = {}
+  const checks: Record<string, CheckStats> = {}
   for (const result of scanned) {
     for (const severity of SEVERITIES) severities[severity] += result.severities[severity]
     for (const [check, count] of Object.entries(result.checks)) {
-      const entry = checks[check] ?? { findings: 0, packages: 0 }
-      checks[check] = { findings: entry.findings + count, packages: entry.packages + 1 }
+      const entry = checks[check] ?? { findings: 0, packages: 0, worst: { critical: 0, high: 0, medium: 0, low: 0 } }
+      const worst = result.checkSeverities[check] ?? 'low'
+      checks[check] = {
+        findings: entry.findings + count,
+        packages: entry.packages + 1,
+        worst: { ...entry.worst, [worst]: entry.worst[worst] + 1 },
+      }
     }
   }
   return {
@@ -308,12 +338,14 @@ function render(baseline: Baseline): void {
       + ` (${Math.round(baseline.withHighOrCritical * 100 / Math.max(baseline.scanned, 1))}%)`,
     `  median per package    ${baseline.medianFindingsPerPackage}`,
     '',
-    '  check   packages  share   findings',
+    '  check   packages  share   findings  worst severity per package',
   ]
   for (const [check, counts] of Object.entries(baseline.checks)) {
     const share = Math.round(counts.packages * 100 / Math.max(baseline.scanned, 1))
+    const worst = SEVERITIES.filter(severity => counts.worst[severity] > 0)
+      .map(severity => `${counts.worst[severity]} ${severity}`).join(', ')
     lines.push(`  ${check.padEnd(6)}  ${String(counts.packages).padStart(8)}  ${String(share).padStart(4)}%`
-      + `  ${String(counts.findings).padStart(8)}`)
+      + `  ${String(counts.findings).padStart(8)}  ${worst}`)
   }
   lines.push('')
   for (const result of baseline.packages) {
