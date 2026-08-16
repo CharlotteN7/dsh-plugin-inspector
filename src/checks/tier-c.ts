@@ -53,13 +53,21 @@ function checkMinification(input: CheckInput): Finding[] {
     const lines = text.split('\n')
     const longest = lines.reduce((max, line) => Math.max(max, line.length), 0)
     const dense = text.length >= MINIFICATION_SIZE_FLOOR && lines.length < 5
-    if (longest < MINIFIED_LINE_LENGTH && !dense) continue
+    // One long line does not make a file unreadable — an embedded prompt or a
+    // base64 asset in otherwise ordinary code is one long line, and the
+    // harness's own web bundle has one. What makes a file unreadable is when
+    // the long lines are most of it.
+    const longBytes = lines.filter(line => line.length >= MINIFIED_LINE_LENGTH)
+      .reduce((sum, line) => sum + line.length, 0)
+    const dominated = longBytes * 2 >= text.length
+    if (!dense && !dominated) continue
     findings.push(tierC({
       checkId: 'C1',
       name: 'minified-source',
       severity: 'medium',
       title: `\`${path}\` is minified or generated`,
-      detail: `Longest line is ${longest} characters across ${lines.length} line(s). Capability detection reads `
+      detail: `Longest line is ${longest} characters across ${lines.length} line(s), and lines that long are `
+        + `${Math.round(longBytes * 100 / Math.max(text.length, 1))}% of the file. Capability detection reads `
         + 'syntax, and it reads minified syntax no better than a person does. Every Tier B negative for this '
         + 'package is unreliable while this file is in it.',
       evidence: { file: path, path: '1:1', snippet: snippet(lines[0] ?? '') },
@@ -116,8 +124,8 @@ function checkDynamicDispatch(input: CheckInput): Finding[] {
           report(node, 'decodes a base64 string at runtime')
         }
         if (ts.isPropertyAccessExpression(callee) && NAMED_TARGET_CALLEES.has(callee.name.text)
-          && isAssembledName(node.arguments[0])) {
-          report(node, `passes an assembled name to \`.${callee.name.text}()\``)
+          && isDispatchReceiver(callee.expression) && isAssembledName(node.arguments[0])) {
+          report(node, `passes an assembled name to \`${receiverName(callee.expression)}.${callee.name.text}()\``)
         }
       }
       ts.forEachChild(node, visit)
@@ -125,6 +133,36 @@ function checkDynamicDispatch(input: CheckInput): Finding[] {
     ts.forEachChild(source, visit)
   }
   return findings
+}
+
+/**
+ * Whether an expression names the plugin context.
+ *
+ * `.set`, `.get`, `.on` and `.emit` are the plugin API's names and also
+ * `Map`'s, `Set`'s, and every EventEmitter's. Without this guard the check
+ * reads `this.steps.set(\`${turn}:${step}\`, time)` — an ordinary composite Map
+ * key — as evasion, which alone degrades the whole report and makes every
+ * Tier B negative unreliable. Element access is already guarded this way; this
+ * makes the call form agree with it.
+ * @param node - the receiver expression.
+ * @returns true when the receiver is a known context binding.
+ */
+function isDispatchReceiver(node: ts.Expression): boolean {
+  if (ts.isIdentifier(node)) return DISPATCH_RECEIVERS.has(node.text)
+  // `this.ctx.on(…)` and `self.ctx.on(…)` are the same receiver held on a field.
+  if (ts.isPropertyAccessExpression(node)) return DISPATCH_RECEIVERS.has(node.name.text)
+  return false
+}
+
+/**
+ * The receiver's own name, for the finding's title.
+ * @param node - the receiver expression.
+ * @returns the identifier or member name.
+ */
+function receiverName(node: ts.Expression): string {
+  if (ts.isIdentifier(node)) return node.text
+  if (ts.isPropertyAccessExpression(node)) return node.name.text
+  return '?'
 }
 
 /**
@@ -153,7 +191,20 @@ function literalOf(node: ts.Node | undefined): string | null {
   return null
 }
 
-/** C3 — shipped build output with nothing to compare it against. */
+/**
+ * Tier C checks that do **not** make a Tier B negative unreliable.
+ *
+ * Every other check here says the analyzer could not read something. C3 says
+ * the opposite: the bytes were read exactly as written and exactly as they will
+ * run — what cannot be checked is whether they match the repository that
+ * claims to have produced them. That is worth reporting and it is not a reason
+ * to distrust the parse, and treating it as one marks every ordinary published
+ * tarball `degraded`, because shipping built output and no source is what
+ * publishing a package *is*.
+ */
+export const NON_DEGRADING_CHECKS: ReadonlySet<string> = new Set(['C3'])
+
+/** C3, C6 — shipped build output with nothing to compare it against. */
 function checkSourcelessBuild(input: CheckInput): Finding[] {
   const built = input.sourceFiles.filter(path => /^(?:lib|dist|build|out)\//.test(path))
   const authored = input.sourceFiles.filter(path => /^(?:src|source)\//.test(path))
@@ -174,8 +225,8 @@ function checkSourcelessBuild(input: CheckInput): Finding[] {
   }
   for (const path of minified) {
     findings.push(tierC({
-      checkId: 'C3',
-      name: 'sourceless-build-output',
+      checkId: 'C6',
+      name: 'minified-artifact',
       severity: 'low',
       title: `\`${path}\` is a minified artifact`,
       detail: 'A `.min.js` file is output, not source. It was still parsed, but nothing about its readability '
@@ -209,6 +260,25 @@ function checkUnreadableFiles(input: CheckInput): Finding[] {
   }))
 }
 
+/** C5 — a patch layer whose structure hit a walk ceiling before it was read out. */
+function checkPatchWalkLimit(input: CheckInput): Finding[] {
+  return input.patches.filter(patch => patch.limit !== null).map(patch => tierC({
+    checkId: 'C5',
+    name: 'patch-walk-truncated',
+    severity: 'high',
+    title: `\`${patch.file}\` was only read in part (${patch.limit === 'depth' ? 'nesting' : 'node count'} ceiling)`,
+    detail: patch.limit === 'depth'
+      ? 'The layer nests deeper than any composition needs. Everything below that point is unread, so no Tier A '
+        + 'reading of this layer is complete.'
+      : 'The layer expands to more nodes than the analyzer will walk. YAML anchors make that cheap to write — a '
+        + 'few hundred bytes of `*alias` references describe a graph with billions of paths through it — and the '
+        + 'usual reason to write one is that a reader gives up before reaching what it hides. Rows past the '
+        + 'ceiling were not read.',
+    evidence: { file: patch.file },
+    bypass: 'none — this finding is about the analysis, not about the plugin',
+  }))
+}
+
 /**
  * Run every Tier C check.
  * @param input - the decoded package.
@@ -220,5 +290,6 @@ export function runTierC(input: CheckInput): Finding[] {
     ...checkDynamicDispatch(input),
     ...checkSourcelessBuild(input),
     ...checkUnreadableFiles(input),
+    ...checkPatchWalkLimit(input),
   ]
 }

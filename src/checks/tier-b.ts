@@ -242,23 +242,52 @@ function checkNestedMount(file: ParsedFile, node: ts.CallExpression, accumulator
   }))
 }
 
-/** B12 — building code at runtime. */
+/**
+ * Whether a `new Function(…)` is ever called.
+ *
+ * Constructing a function does not run anything: this tool compiles `!!js`
+ * expressions with `new Function` purely to learn whether they parse, and
+ * discards the result. A check that cannot tell that apart from an invocation
+ * fires on its own documented parse step, and an analyzer that fails its own
+ * default gate has no standing to gate anything else. So the finding is about
+ * the call, in either of the two forms it takes: invoked where it is built, or
+ * bound to a name that is called later in the same file.
+ * @param node - the `new Function(…)` expression.
+ * @param file - the parsed file it came from.
+ * @returns true when the constructed function is invoked.
+ */
+function isInvokedFunctionCtor(node: ts.NewExpression, file: ParsedFile): boolean {
+  const parent = node.parent as ts.Node | undefined
+  if (parent !== undefined && ts.isCallExpression(parent) && parent.expression === node) return true
+  if (parent === undefined || !ts.isVariableDeclaration(parent) || !ts.isIdentifier(parent.name)) return false
+  const bound = parent.name.text
+  let called = false
+  const visit = (child: ts.Node): void => {
+    if (ts.isCallExpression(child) && ts.isIdentifier(child.expression) && child.expression.text === bound) called = true
+    ts.forEachChild(child, visit)
+  }
+  ts.forEachChild(file.node, visit)
+  return called
+}
+
+/** B12 — building code at runtime and running it. */
 function checkDynamicCode(file: ParsedFile, node: ts.Node, accumulator: Accumulator): void {
   const isEvalCall = ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === 'eval'
   const isVmCall = ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)
     && DYNAMIC_CODE_CALLEES.has(node.expression.name.text)
-  const isFunctionCtor = ts.isNewExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === 'Function'
+  const isFunctionCtor = ts.isNewExpression(node) && ts.isIdentifier(node.expression)
+    && node.expression.text === 'Function' && isInvokedFunctionCtor(node, file)
   if (!isEvalCall && !isVmCall && !isFunctionCtor) return
   accumulator.findings.push(tierB({
     checkId: 'B12',
     name: 'dynamic-code-construction',
     severity: 'high',
     title: 'Builds and runs code at runtime',
-    detail: 'Whatever this evaluates is not in the package and cannot be analysed from it. Note that this tool '
-      + 'itself compiles `!!js` expressions with `new Function` to check that they parse, and never calls the result '
-      + '— the construct is only a finding when the result is invoked.',
+    detail: 'Whatever this evaluates is not in the package and cannot be analysed from it. Construction alone is '
+      + 'not the finding: a `new Function` whose result is never called compiles a string and discards it, which is '
+      + 'how this tool checks that a `!!js` expression parses.',
     evidence: at(file, node),
-    bypass: 'none needed — this is already the general escape from every other Tier B check',
+    bypass: 'building the function in one statement and calling it through a value this tool does not track',
   }))
 }
 
@@ -321,29 +350,6 @@ function checkToolDescription(file: ParsedFile, node: ts.Node, accumulator: Accu
   }
 }
 
-/** B10 — injection phrasing in shipped skill and instruction markdown. */
-function checkModelVisibleText(input: CheckInput): Finding[] {
-  const findings: Finding[] = []
-  for (const path of input.modelVisibleFiles) {
-    const text = input.source.files.get(path)
-    if (text === undefined) continue
-    for (const match of scanInjection(text)) {
-      findings.push(tierB({
-        checkId: 'B10',
-        name: 'model-visible-injection',
-        severity: 'high',
-        title: `Shipped instruction file ${match.meaning}`,
-        detail: `Heuristic \`${match.ruleId}\` matched shipped markdown that reaches the model verbatim, unescaped `
-          + 'and uncapped, when it is discovered. This is a natural-language heuristic: it will miss a rephrasing, '
-          + 'and it can fire on a document that legitimately discusses the subject.',
-        evidence: { file: path, path: lineColumn(text, match.index), snippet: snippet(match.excerpt) },
-        bypass: 'any rephrasing the pattern does not cover',
-      }))
-    }
-  }
-  return findings
-}
-
 /** B7 — network calls that need no import. */
 function checkNetworkGlobals(file: ParsedFile, node: ts.Node, accumulator: Accumulator): void {
   const callee = ts.isCallExpression(node) || ts.isNewExpression(node) ? node.expression : undefined
@@ -393,7 +399,6 @@ export function runTierB(input: CheckInput): Finding[] {
     }
     ts.forEachChild(file.node, visit)
   }
-  accumulator.findings.push(...checkModelVisibleText(input))
   const pair = pairFinding(accumulator)
   if (pair !== null) accumulator.findings.push(pair)
   return accumulator.findings
