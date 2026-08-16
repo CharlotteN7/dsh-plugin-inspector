@@ -132,6 +132,31 @@ export async function main(argv: readonly string[]): Promise<number> {
   }
 }
 
+/**
+ * Report a failure that reached no `try`, and say which exit code it is.
+ *
+ * Not every failure can be caught where it happens. A `RangeError` raised
+ * inside a stream's `'end'` handler is thrown at an EventEmitter, not at the
+ * `await`, so it walks past every `catch` in this program and kills the process
+ * with Node's default handler — which exits **1**, the code that means "the
+ * analysis completed and found something at or above --fail-on". A CI job then
+ * reads a crash as a verdict. The whole point of a separate code 2 is that this
+ * cannot happen, so the last resort has to be covered too.
+ * @param error - whatever was thrown.
+ * @returns the exit code to leave with.
+ */
+export function reportFatal(error: unknown): number {
+  const message = error instanceof Error ? (error.stack ?? error.message) : String(error)
+  process.stderr.write(`dsh-inspect: the analysis could not be completed: ${message}\n`)
+  return EXIT.unanalysable
+}
+
 if (import.meta.main) {
+  process.on('uncaughtException', (error) => {
+    process.exit(reportFatal(error))
+  })
+  process.on('unhandledRejection', (error) => {
+    process.exit(reportFatal(error))
+  })
   process.exitCode = await main(process.argv.slice(2))
 }
