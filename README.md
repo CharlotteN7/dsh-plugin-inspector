@@ -2,13 +2,13 @@
 
 **Know what a plugin does before you install it.**
 
-`dsh-inspect` reads a DeepSeek Harness plugin — a directory or an npm tarball — and tells you
-what it declares and what its code is capable of. It does not install it, build it, import it,
-spawn it, or evaluate any part of it.
+`dsh-inspect` reads a DeepSeek Harness plugin — a directory, an npm tarball, or a published
+package fetched by name and checked against the hash the registry published — and tells you what it
+declares and what its code is capable of. It does not install it, build it, import it, spawn it, or
+evaluate any part of it.
 
 ```console
-$ npm pack some-dsh-plugin@1.4.0 --pack-destination /tmp
-$ dsh-inspect /tmp/some-dsh-plugin-1.4.0.tgz
+$ dsh-inspect --from-npm some-dsh-plugin@1.4.0
 ```
 
 ## Install
@@ -53,7 +53,7 @@ dsh: warning: <pkg> declares no dsh.bundle — installed as a plain dependency, 
 
 The dangerous case prints nothing.
 
-There are over 4,000 repos tagged `dsh-plugin` — 4,813 when this was last counted, in August
+There are over 5,000 repos tagged `dsh-plugin` — 5,071 when this was last counted, on 16 August
 2026 — and no registry, no review, and no signing between any of them and your process. This tool
 exists so that the moment before you install one is not a blank.
 
@@ -68,15 +68,6 @@ commands it puts on your PATH, its dependencies, what model-visible text it ship
 it could be read. A well-behaved plugin has a full facts section and an empty findings section.
 That is a useful answer, not an empty one.
 
-That is also the bar the tool is held to. Across twelve real targets — four plugins read both as a
-directory and as their published tarball, the three bundles the harness itself ships, and a
-scratch plugin — the current build reports **49 findings: none critical, two high, and exactly one
-target exiting non-zero.** Both high findings are true statements about `@deepseek-ai/dsh-web-app`'s
-own shipped code, which does contribute to the system prompt and does mount further plugins. The
-upstream plugin template reports three findings, all `node:fs` and `dshHomePath` facts about what
-it genuinely does; the base and headless bundles report three and one. Every packable target's
-directory reading and tarball reading are byte-identical.
-
 **Findings** — ranked, in three tiers:
 
 | Tier | What it reads | What it can say |
@@ -89,14 +80,63 @@ Every Tier B and Tier C finding carries a `bypass` field naming the one-line eva
 specific check. It is inside the finding, not in a footnote, so a report cannot be rendered
 without its caveat.
 
+A finding is **per package, not per syntax site**. A package importing `node:fs` from eleven files
+gets one finding with `occurrences: 11` and three example locations, because the eleventh import
+warrants no decision the first did not. Findings are grouped by check and `subject` — the module
+specifier, the row id, the seam name, the matched rule — so `node:child_process` and
+`node:worker_threads` stay two findings, and a gate can accept `B13`/`node:fs` without accepting
+every `B13`.
+
+## What it reports on the real ecosystem
+
+Measured **2026-08-16** against the 40 most-starred GitHub repositories tagged `dsh-plugin` that
+publish a resolvable npm package, each pinned to the version current that day. Re-run it with
+`pnpm run sweep`; the corpus is `scripts/ecosystem-corpus.json` and the recorded measurement is
+`tests/ecosystem-baseline.json`.
+
+| | 0.1 | 0.2 |
+|---|---|---|
+| Findings | 1,420 | **295** |
+| Critical | 252 | **3** |
+| Median findings per package | 10.5 | **5.5** |
+| Packages with a high or critical | 27 of 40 (68 %) | **21 of 40 (53 %)** |
+| Packages failing `--fail-on critical` | 40 of 40 | **1 of 40** |
+| Clean packages | 0 of 40 | **0 of 40** |
+
+**The 0.1 README quoted "49 findings, 0 critical" and that number was worthless.** It was measured
+on twelve targets — the harness's own bundles and our own sibling plugins — which is a sample
+selected for being trusted already. Against published third-party plugins the same build produced
+1,420 findings and 252 criticals, and no package came out clean.
+
+Read the 0.2 column honestly:
+
+- **`--fail-on critical` is now a usable gate.** It stops one package in forty. That package,
+  `@struktoai/mirage-dsh`, ships a patch layer that switches off `fs-sandbox`, `bash-sandbox` and
+  `pwsh-sandbox`, and its three findings lead the report. Under 0.1 the same three sat somewhere in
+  a list of 252.
+- **The default `--fail-on high` still stops a majority of the ecosystem**, and that is not a
+  finished job. The largest remaining driver is `C2` — the analyzer saying it could not read the
+  package, on 33 % of the corpus. That is a true statement rather than a false positive, but a gate
+  that fires on a third of npm for reasons about the *tool* is not yet a gate.
+- **No package is clean, and that is expected rather than alarming.** `C3` alone — "ships built
+  output and no source" — fires on 65 % of published packages, because that is what publishing a
+  package is. It is `low`, it does not degrade the analysis, and it is not a defect.
+
+The gap between "readable report" and "installable gate" is what 0.3 is for.
+
 ## Usage
 
 ```
 dsh-inspect <target> [options]
+dsh-inspect --from-npm <name>[@<version>] [options]
 
   <target>                A plugin directory, or an npm tarball (.tgz / .tar.gz).
 
 Options
+  --from-npm <spec>       Fetch a published package from the registry, verify its
+                          dist.integrity hash, and analyse it in memory.
+  --registry <url>        Registry base URL for --from-npm.
+                          (default: https://registry.npmjs.org)
   --json                  Emit the machine-readable JSON document on stdout.
   --fail-on <severity>    Exit 1 at or above this severity.
                           critical | high | medium | low | none    (default: high)
@@ -117,13 +157,12 @@ plugin is clean" is the failure this split exists to prevent.
 
 ### Getting a package without installing it
 
-Never `pnpm add` a package you have not read. Two safe ways to get the bytes:
+Never `pnpm add` a package you have not read.
 
 ```console
-# From the registry. `npm pack` on a registry spec downloads and repacks; it does not install
-# and does not run the package's scripts.
-npm pack <name>@<version> --pack-destination /tmp
-dsh-inspect /tmp/<name>-<version>.tgz
+# From the registry, in one step. Reads the ~3 KB version document, downloads the tarball into
+# memory, verifies dist.integrity BEFORE anything parses it, and analyses it there.
+dsh-inspect --from-npm <name>@<version>
 
 # From git. Clone shallow and point the tool at the directory — do NOT use `npm pack` on a git
 # spec, which runs the package's `prepare` script.
@@ -131,10 +170,21 @@ git clone --depth 1 https://github.com/… /tmp/plugin
 dsh-inspect /tmp/plugin
 ```
 
-A tarball is decoded **entirely in memory**. Nothing is written to disk, which makes tar path
-traversal structurally impossible rather than something a filter has to catch. Every read ceiling
-is applied to the arriving stream rather than to a finished buffer, so a 28 MB archive holding one
-8 GB member is a refusal in under two seconds, not an out-of-memory kill.
+`--from-npm` is the only mode that opens a socket, and it is one flag per invocation: it cannot be
+combined with a local target, and a directory or tarball scan can never reach it — the fetch lives
+in a module the analysis path does not import. **A network fetch is not execution.** No subprocess,
+no disk write, no lifecycle script, and no `npm pack`. The report records the tarball URL, the
+digest that matched, and the registry's own `hasInstallScript` flag under `target.registry`.
+
+If the hash does not match what the registry published, the tool refuses and parses nothing. If the
+package predates `dist.integrity` entirely, the weaker `dist.shasum` is used and the report says
+`sha1` rather than claiming more. If neither is published, that is a refusal too.
+
+A tarball is decoded **entirely in memory**, from a file or from a fetch alike. Nothing is written
+to disk, which makes tar path traversal structurally impossible rather than something a filter has
+to catch. Every read ceiling is applied to the arriving stream rather than to a finished buffer, so
+a 28 MB archive holding one 8 GB member is a refusal in under two seconds, not an out-of-memory
+kill.
 
 ### Directory mode reads the working tree, not "the package"
 
@@ -187,6 +237,12 @@ The tool does not run in the harness process, does not gate installation, and ca
 anything. It raises the cost of shipping a hostile plugin and gives you something to read where
 today you see nothing. That is the whole claim.
 
+A seam at which an install *could* be stopped does exist — `dsh plugin add` runs pnpm in the
+profile directory, pnpm honours a `.pnpmfile.cjs` there, and throwing from its async `readPackage`
+hook aborts the install with nothing written to `node_modules`. Nothing in 0.2 uses it.
+[`ADR.md`](./ADR.md) §11 records the seam and why shipping a gate on this release's calibration
+would have burned the idea.
+
 ### What is not statically decidable
 
 1. **`!!js` semantics.** The loader evaluates these with
@@ -207,13 +263,20 @@ today you see nothing. That is the whole claim.
 6. **Intent.** Tier B's `B8` is the sharpest case: the tool proves a package *can* read a
    credential and *can* open a socket. It has not shown that the value flows between them, and it
    cannot — that needs value tracking this tool does not do. Any telemetry library or
-   authenticated API client trips `B8` legitimately.
+   authenticated API client trips `B8` legitimately. It fires on 18 % of published plugins, which
+   is why it is `high` and not `critical`.
+7. **Injection phrasing that is not spelled in ASCII.** The injection heuristics are Latin-alphabet
+   regexes. Substituting Cyrillic homoglyphs — `о` U+043E for `o`, `е` U+0435 for `e` — defeats
+   **every one of the ten rules**, including the zero-width-character rule, which looks for
+   invisible characters and not for visible ones that are the wrong letter. Verified against the
+   rule table, not assumed. Normalisation is not in 0.2; do not read a clean `A21`/`B10` as
+   evidence that shipped markdown carries no instructions.
 
 ### Every Tier B check has a one-line bypass
 
 `ctx['pro' + 'vide']('approval', …)` defeats seam detection. A computed specifier defeats every
 import check. A base64 event name defeats every listener check. Splitting a credential read and a
-network call across two packages defeats `B8`.
+network call across two packages defeats `B8`. A Cyrillic `о` defeats every injection rule.
 
 **Tier A is much harder to hide from, because it is structured declaration rather than code.**
 The harness must read `disabled: true` literally in order to disable anything, so there is no
@@ -232,8 +295,9 @@ that could be read.*
 
 ## Development
 
-Node `^22.19.0 || >=24` and pnpm are the only requirements; there is no network and no harness
-checkout in any test.
+Node `^22.19.0 || >=24` and pnpm are the only requirements. No test reaches a network or a harness
+checkout: every registry case injects its own `fetch`, and one of them replaces the global with a
+throwing stub to prove a directory or tarball scan never calls it.
 
 ```console
 pnpm install
@@ -242,7 +306,16 @@ pnpm run test               # unit suite
 pnpm run test:coverage      # same suite, with the coverage ratchet
 pnpm run test:e2e           # builds, then runs the real binary as a subprocess
 pnpm run inspect <target>   # run from source without building
+pnpm run sweep -- --check   # the one thing here that DOES use a network
 ```
+
+`pnpm run sweep` is the ecosystem measurement. It fetches the pinned corpus in
+`scripts/ecosystem-corpus.json` through the same verified in-memory path as `--from-npm`, prints the
+distribution, and with `--check` exits non-zero when a fresh run is worse than
+`tests/ecosystem-baseline.json`. `--discover` rebuilds the corpus from the most-starred repositories
+carrying the topic; `--pin` moves every entry to the version current now; `--record` rewrites the
+baseline. It runs from its own weekly workflow, never from CI — every other workflow here runs
+without a network, and a unit suite that cannot reach one is easier to trust.
 
 Hostile fixtures live in `tests/fixtures/` and are authored here — a plugin that disables the
 approval row, one whose `!!js` calls `child_process`, one with a `postinstall`, one pairing a
