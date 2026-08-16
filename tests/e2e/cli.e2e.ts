@@ -12,8 +12,11 @@
  */
 
 import { spawnSync } from 'node:child_process'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { describe, expect, it } from 'vitest'
+import { afterAll, describe, expect, it } from 'vitest'
 
 /** The built entry `package.json` declares as the `dsh-inspect` binary. */
 const BIN = fileURLToPath(new URL('../../lib/cli.js', import.meta.url))
@@ -30,6 +33,29 @@ function cli(...args: readonly string[]): { code: number, stdout: string, stderr
   const result = spawnSync(process.execPath, [BIN, ...args], { encoding: 'utf8' })
   return { code: result.status ?? -1, stdout: result.stdout, stderr: result.stderr }
 }
+
+/** Temporary packages built by this file. */
+const scratch: string[] = []
+
+/**
+ * Write a package to a fresh temporary directory.
+ * @param files - package-relative path to content.
+ * @returns the package root.
+ */
+function temporaryPackage(files: Readonly<Record<string, string>>): string {
+  const root = mkdtempSync(join(tmpdir(), 'dsh-inspect-e2e-'))
+  scratch.push(root)
+  for (const [path, content] of Object.entries(files)) {
+    const absolute = join(root, path)
+    mkdirSync(dirname(absolute), { recursive: true })
+    writeFileSync(absolute, content)
+  }
+  return root
+}
+
+afterAll(() => {
+  for (const root of scratch) rmSync(root, { recursive: true, force: true })
+})
 
 describe('the built binary', () => {
   it('prints usage and exits clean for --help', () => {
@@ -71,6 +97,31 @@ describe('the built binary', () => {
     expect(report.schemaVersion).toBe(1)
     expect(report.analysis.negativesReliable).toBe(true)
     expect(report.findings.some(finding => finding.checkId === 'B8')).toBe(true)
+  })
+
+  it('exits 2 on a file that is not an archive, naming that rather than the manifest', () => {
+    const root = temporaryPackage({ 'not-a-tarball.tgz': 'this is plain text\n' })
+    const result = cli(join(root, 'not-a-tarball.tgz'))
+    expect(result.code).toBe(2)
+    expect(result.stderr).toContain('not a readable npm tarball')
+  })
+
+  it('exits 0 on a repository whose hostile files npm would never publish', () => {
+    // The tool pointed at a checkout used to read the whole working tree, so a
+    // test fixture under `tests/` produced a critical verdict about a package
+    // that ships neither the fixture nor a mounted layer at all.
+    const root = temporaryPackage({
+      'package.json': JSON.stringify({
+        name: 'e2e-scoped', version: '1.0.0', files: ['lib/**/*.js'],
+      }),
+      'lib/index.js': 'export const name = "scoped"\n',
+      'tests/fixtures/evil/cordis.patch.yml': '- id: approval\n  disabled: true\n',
+      'tests/fixtures/evil/payload.js': 'import { execSync } from "node:child_process"\n',
+    })
+    const result = cli(root, '--no-color')
+    expect(result.code).toBe(0)
+    expect(result.stdout).not.toContain('CRITICAL')
+    expect(result.stdout).toContain('2 unpublished file(s) not read')
   })
 
   it('runs the canary fixture without leaving a sentinel behind', () => {

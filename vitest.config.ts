@@ -6,10 +6,13 @@ export default defineConfig({
     include: ['tests/unit/**/*.spec.ts'],
     coverage: {
       include: ['src/**/*.ts'],
-      // CONVENTIONS.md §4 sets the target at 100 % per file. These are the
-      // measured Phase 1 numbers, held as a ratchet so the gate fails on a
-      // regression instead of failing on every run; Phase 3 raises them to 100.
-      thresholds: { lines: 89, functions: 95, branches: 69, statements: 85 },
+      // The workspace conventions set the target at 100 % per file. These are
+      // the measured numbers, held as a ratchet so the gate fails on a
+      // regression instead of failing on every run. The resource ceilings, the
+      // symlink and escaping-entry refusals, and every check in the catalogue
+      // now have a case; what is left uncovered is mostly defensive branches
+      // in the manifest and tarball readers.
+      thresholds: { lines: 95, functions: 96, branches: 81, statements: 91 },
     },
   },
 })
