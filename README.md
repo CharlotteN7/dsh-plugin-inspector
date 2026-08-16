@@ -13,9 +13,15 @@ $ dsh-inspect /tmp/some-dsh-plugin-1.4.0.tgz
 
 ## Install
 
-Node `^22.19.0 || >=24`. The repository is private and nothing is published to a registry yet, so
-the binary comes from a checkout — and `lib/` is generated, so a fresh clone has no `dsh-inspect`
-until it is built:
+Node `^22.19.0 || >=24`. Once a release is published:
+
+```console
+npm install -g dsh-plugin-inspector
+dsh-inspect --help
+```
+
+Until then the binary comes from a checkout — and `lib/` is generated, so a fresh clone has no
+`dsh-inspect` until it is built:
 
 ```console
 git clone https://github.com/CharlotteN7/dsh-plugin-inspector
