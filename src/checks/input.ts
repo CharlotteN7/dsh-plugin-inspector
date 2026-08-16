@@ -23,9 +23,20 @@ export interface PatchFailure {
 export interface CheckInput {
   readonly source: PluginSource
   readonly manifest: PackageManifest
-  /** Every Cordis patch layer found in the package that parsed. */
+  /**
+   * True when `package.json` declares `dsh.bundle.patch`. False means nothing
+   * in this package composes into a profile, which forbids every Tier A
+   * patch-row verdict outright — see `runTierA`.
+   */
+  readonly mountsAsBundle: boolean
+  /**
+   * The mounted patch layer, parsed. At most one: `dsh.bundle.patch` names
+   * exactly one file and the launcher reads no other.
+   */
   readonly patches: readonly PatchDocument[]
   readonly patchFailures: readonly PatchFailure[]
+  /** Cordis YAML the package ships but no manifest key mounts. */
+  readonly unmountedPatchFiles: readonly string[]
   /** Package-relative paths of shipped JavaScript and TypeScript source. */
   readonly sourceFiles: readonly string[]
   /** Package-relative paths of shipped skill and agent-instruction markdown. */

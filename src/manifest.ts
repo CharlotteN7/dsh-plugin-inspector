@@ -35,6 +35,8 @@ export interface PackageManifest {
   readonly devDependencies: Readonly<Record<string, string>>
   /** The publish allowlist, or `null` when the manifest declares none. */
   readonly files: readonly string[] | null
+  /** Command names the package installs on the user's PATH, in declaration order. */
+  readonly binNames: readonly string[]
   readonly exportPaths: readonly string[]
   readonly dsh: DshSection
   /** Problems found while reading the manifest, reported as Tier A findings. */
@@ -111,6 +113,19 @@ function readDshSection(value: unknown, defects: string[]): DshSection {
 }
 
 /**
+ * Read the command names `bin` installs. npm accepts both the string form,
+ * which names one command after the package, and the object form.
+ * @param parsed - the parsed manifest object.
+ * @returns the command names, in declaration order.
+ */
+function readBinNames(parsed: Record<string, unknown>): string[] {
+  const bin = parsed.bin
+  if (typeof bin === 'string') return [typeof parsed.name === 'string' ? parsed.name : '<unnamed>']
+  if (!isRecord(bin)) return []
+  return Object.keys(bin)
+}
+
+/**
  * Parse an untrusted `package.json`.
  * @param text - the file's UTF-8 content.
  * @returns the narrowed manifest, including any shape defects found.
@@ -137,6 +152,7 @@ export function parseManifest(text: string): PackageManifest {
     optionalDependencies: stringMap(parsed, 'optionalDependencies', defects),
     devDependencies: stringMap(parsed, 'devDependencies', defects),
     files: Array.isArray(files) ? files.filter((entry): entry is string => typeof entry === 'string') : null,
+    binNames: readBinNames(parsed),
     exportPaths: isRecord(exportsValue) ? Object.keys(exportsValue) : [],
     dsh: readDshSection(parsed.dsh, defects),
     defects,

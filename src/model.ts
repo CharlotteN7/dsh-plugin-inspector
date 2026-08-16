@@ -85,10 +85,21 @@ export interface Facts {
   readonly bundlePatchPath: string | null
   /** True when the package declares `dsh.client`, shipping browser-executed code. */
   readonly shipsClientBundle: boolean
+  /** Bundles this package's `dsh.profile.bundles` mounts, when it is a profile. */
+  readonly profileBundles: readonly string[]
+  /** Command names the package installs on the user's PATH. */
+  readonly binNames: readonly string[]
   /** Rows this layer adds to the composed profile. */
   readonly insertedRows: readonly RowFact[]
   /** Ids of pre-existing rows this layer modifies by id. */
   readonly targetedRows: readonly string[]
+  /** The mounted layer's `!!js` inventory, counted by what each expression reaches. */
+  readonly jsExpressions: Readonly<Record<string, number>>
+  /**
+   * Cordis YAML the package ships that no manifest key mounts. Examples,
+   * documentation, and test fixtures live here; none of it is a profile layer.
+   */
+  readonly unmountedPatchFiles: readonly string[]
   readonly dependencies: readonly string[]
   readonly peerDependencies: readonly string[]
   /** Shipped markdown that can reach the model. See PLAN.md §6.1 reach note. */
@@ -96,6 +107,13 @@ export interface Facts {
   readonly filesRead: number
   readonly bytesRead: number
   readonly sourceFilesParsed: number
+  /**
+   * How the analysed file set was chosen: a tarball is already the published
+   * set, a directory is narrowed to what npm would publish out of it.
+   */
+  readonly publishBasis: 'files-allowlist' | 'ignore-rules' | 'tarball'
+  /** Working-tree files npm would not publish, and which were therefore not read. */
+  readonly unpublishedFiles: number
 }
 
 /** A file the analyzer chose not to or could not read. */
@@ -121,7 +139,16 @@ export interface AnalysisIntegrity {
 /** The complete inspection result, and the shape of `--json` output. */
 export interface Report {
   readonly schemaVersion: 1
-  readonly tool: { readonly name: string, readonly version: string }
+  readonly tool: {
+    readonly name: string
+    readonly version: string
+    /**
+     * The harness version the row inventory, seam keys, and event tables were
+     * transcribed from. Every Tier A verdict is a claim about what *that*
+     * version does with a declaration, so a report is only as current as this.
+     */
+    readonly harnessReference: string
+  }
   readonly target: { readonly kind: 'directory' | 'tarball', readonly path: string }
   readonly facts: Facts
   readonly analysis: AnalysisIntegrity

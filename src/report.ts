@@ -87,6 +87,33 @@ function wrap(text: string, width: number): string[] {
 }
 
 /**
+ * Summarise the mounted layer's `!!js` inventory, dropping the classes that
+ * scored nothing so the line stays readable.
+ * @param tally - one count per classification.
+ * @returns the summary line.
+ */
+function describeExpressions(tally: Readonly<Record<string, number>>): string {
+  const present = Object.entries(tally).filter(([, count]) => count > 0)
+  if (present.length === 0) return 'none'
+  return present.map(([name, count]) => `${count} ${name}`).join(', ')
+}
+
+/**
+ * Say which files were analysed and, in directory mode, how many were left out
+ * because npm would not publish them.
+ * @param facts - the report's facts.
+ * @returns the description.
+ */
+function describeFileSet(facts: Report['facts']): string {
+  if (facts.publishBasis === 'tarball') return 'the tarball as published'
+  const basis = facts.publishBasis === 'files-allowlist'
+    ? 'the package.json `files` allowlist'
+    : 'npm defaults over .npmignore/.gitignore'
+  return `working tree narrowed to what npm would publish, by ${basis}`
+    + ` (${facts.unpublishedFiles} unpublished file(s) not read)`
+}
+
+/**
  * Render the "what does this plugin do" section, which is printed whether or
  * not there are findings.
  * @param report - the report.
@@ -106,9 +133,16 @@ function renderFacts(report: Report, paint: (code: string, text: string) => stri
       ? 'none'
       : facts.insertedRows.map(row => `${row.id}${row.name === undefined ? '' : ` → ${row.name}`}`).join('\n                ')],
     ['rows modified', facts.targetedRows.length === 0 ? 'none' : facts.targetedRows.join(', ')],
+    ['!!js in layer', describeExpressions(facts.jsExpressions)],
+    ['other layers', facts.unmountedPatchFiles.length === 0
+      ? 'none'
+      : `${facts.unmountedPatchFiles.join(', ')} (shipped, mounted by no manifest key)`],
+    ['installs', facts.binNames.length === 0 ? 'no commands' : facts.binNames.join(', ')],
     ['dependencies', facts.dependencies.length === 0 ? 'none' : facts.dependencies.join(', ')],
     ['model-visible', facts.modelVisibleFiles.length === 0 ? 'none' : facts.modelVisibleFiles.join(', ')],
     ['analysed', `${facts.filesRead} files, ${facts.sourceFilesParsed} parsed as source, ${facts.bytesRead} bytes`],
+    ['file set', describeFileSet(facts)],
+    ['checked against', `DeepSeek Harness ${report.tool.harnessReference}`],
   ]
   const lines = [paint('bold', 'What this plugin declares'), '']
   for (const [key, value] of rows) lines.push(`  ${paint('dim', key.padEnd(16))}${value}`)

@@ -57,6 +57,57 @@ export function isCordisConfigFile(path: string): boolean {
 }
 
 /**
+ * Resolve a manifest-declared path to the package-relative POSIX form used as
+ * map keys, or report that it leaves the package.
+ *
+ * Only `..` escapes. An absolute path does **not**: the launcher resolves the
+ * patch as `join(packageDir, declared)` (`packages/boot/app-boot/src/profile.ts`),
+ * and `join` re-roots an absolute second argument *inside* the first, so
+ * `join('/…/pkg', '/etc/passwd')` is `/…/pkg/etc/passwd`. A leading slash
+ * therefore names a file the package does not ship, not a file outside it.
+ * @param declared - the path exactly as the manifest declares it.
+ * @returns the normalised package-relative path, or `null` when it escapes.
+ */
+export function normalizePackagePath(declared: string): string | null {
+  const segments: string[] = []
+  for (const segment of declared.replace(/^[a-zA-Z]:/, '').split(/[\\/]/)) {
+    if (segment === '' || segment === '.') continue
+    if (segment === '..') {
+      if (segments.length === 0) return null
+      segments.pop()
+      continue
+    }
+    segments.push(segment)
+  }
+  return segments.join('/')
+}
+
+/**
+ * Render a value as JSON-like evidence without walking a graph as a tree.
+ * A YAML anchor makes one node reachable by many paths, so `JSON.stringify` on
+ * a patch row's `config` can be asked to serialise billions of nodes from a
+ * few hundred bytes of input. This stops at a depth and a length instead.
+ * @param value - the value to describe.
+ * @param maxDepth - how far to descend before writing an ellipsis.
+ * @param limit - the longest string to return.
+ * @returns the bounded rendering.
+ */
+export function boundedJson(value: unknown, maxDepth = 4, limit = SNIPPET_LIMIT * 2): string {
+  const seen = new WeakSet<object>()
+  const render = (node: unknown, depth: number): string => {
+    if (node === null || typeof node !== 'object') return JSON.stringify(node) ?? 'null'
+    if (seen.has(node)) return '"…(repeated)"'
+    if (depth >= maxDepth) return Array.isArray(node) ? '[…]' : '{…}'
+    seen.add(node)
+    if (Array.isArray(node)) return `[${node.slice(0, 8).map(item => render(item, depth + 1)).join(',')}]`
+    const entries = Object.entries(node).slice(0, 16)
+    return `{${entries.map(([key, item]) => `${JSON.stringify(key)}:${render(item, depth + 1)}`).join(',')}}`
+  }
+  const text = render(value, 0)
+  return text.length <= limit ? text : `${text.slice(0, limit - 1)}…`
+}
+
+/**
  * Reduce text to a single-line excerpt safe to print in a report.
  * @param text - the source text.
  * @param limit - maximum characters to keep.

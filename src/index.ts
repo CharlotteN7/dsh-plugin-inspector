@@ -29,7 +29,8 @@ export {
   type PatchDocument,
 } from './cordis-yaml.ts'
 export { declaredPackages, ManifestError, parseManifest, type PackageManifest } from './manifest.ts'
-export { loadSource, SourceError, type PluginSource } from './source.ts'
+export { DEFAULT_LIMITS, loadSource, SourceError, type PluginSource, type ReadLimits } from './source.ts'
+export { globMatch, publishSet, type PublishBasis, type PublishInputs, type PublishSet } from './publish.ts'
 export { INJECTION_RULES, scanInjection, type InjectionMatch, type InjectionRule } from './injection.ts'
 export {
   compareFindings,
@@ -48,8 +49,11 @@ export {
 export {
   CORE_ROWS,
   CORE_ROW_IDS,
+  HARNESS_BUNDLE_PACKAGES,
   HARNESS_REFERENCE,
   SEAM_KEYS,
   SECURITY_ROW_IDS,
   WATERFALL_EVENTS,
+  type BundleName,
+  type CoreRow,
 } from './knowledge.ts'

@@ -10,8 +10,15 @@
  * @module dsh-plugin-inspector/inspect
  */
 
-import { PatchParseError, parsePatchDocument, type PatchDocument } from './cordis-yaml.ts'
-import { isCordisConfigFile, isModelVisibleText, isSourceFile } from './files.ts'
+import {
+  EXPRESSION_CLASSES,
+  PatchParseError,
+  parsePatchDocument,
+  type ExpressionClass,
+  type PatchDocument,
+} from './cordis-yaml.ts'
+import { isCordisConfigFile, isModelVisibleText, isSourceFile, normalizePackagePath } from './files.ts'
+import { HARNESS_REFERENCE } from './knowledge.ts'
 import { parseManifest } from './manifest.ts'
 import {
   SEVERITY_RANK,
@@ -27,7 +34,7 @@ import { loadSource, type PluginSource } from './source.ts'
 import type { CheckInput, PatchFailure } from './checks/input.ts'
 import { runTierA } from './checks/tier-a.ts'
 import { runTierB } from './checks/tier-b.ts'
-import { runTierC } from './checks/tier-c.ts'
+import { NON_DEGRADING_CHECKS, runTierC } from './checks/tier-c.ts'
 
 /** This tool's own version, reported in the JSON document. */
 export const TOOL_VERSION = '0.1.0'
@@ -36,40 +43,39 @@ export const TOOL_VERSION = '0.1.0'
 export const TOOL_NAME = 'dsh-plugin-inspector'
 
 /**
- * Locate every Cordis patch layer the package ships. The declared
- * `dsh.bundle.patch` is what actually mounts; other cordis YAML files in the
- * package are analysed too, because a plugin frequently ships an example layer
- * that a user is invited to copy into their profile.
+ * Locate the one Cordis patch layer that actually mounts.
+ *
+ * `dsh.bundle.patch` is the whole of it. The launcher reads that key and no
+ * other (`packages/boot/app-boot/src/profile.ts`), so a file named
+ * `cordis.patch.yml` sitting anywhere else in the package is a document, an
+ * example, or a test fixture — not a layer. Treating those as mounted is how a
+ * tool comes to report `[critical] disables the core row "approval"` about a
+ * package that mounts nothing at all.
  * @param source - the decoded package.
  * @param declaredPatch - the `dsh.bundle.patch` value, already normalised.
- * @returns package-relative paths, the mounted layer first.
+ * @returns the mounted layer's path, and every other cordis YAML file.
  */
-function patchFiles(source: PluginSource, declaredPatch: string | null): string[] {
+function patchFiles(
+  source: PluginSource, declaredPatch: string | null,
+): { mounted: string | null, others: readonly string[] } {
   const candidates = [...source.files.keys()].filter(isCordisConfigFile).sort()
-  if (declaredPatch === null || !source.files.has(declaredPatch)) return candidates
-  return [declaredPatch, ...candidates.filter(path => path !== declaredPatch)]
+  const mounted = declaredPatch !== null && source.files.has(declaredPatch) ? declaredPatch : null
+  return { mounted, others: candidates.filter(path => path !== mounted) }
 }
 
 /**
- * Normalise a manifest-declared relative path, or return `null` when it leaves
- * the package. Tier A reports the escape; this only needs to not follow it.
- * @param declared - the manifest value.
- * @returns the package-relative path, or `null`.
+ * Tally the `!!js` inventory by what each expression reaches. The inventory is
+ * a fact — a constant or a service read in a config value is what the shipped
+ * bundles are made of — and only the classes with reach become findings.
+ * @param patches - the parsed patch layers.
+ * @returns one count per classification.
  */
-function normalizeDeclaredPath(declared: string | undefined): string | null {
-  if (declared === undefined) return null
-  if (declared.startsWith('/') || /^[a-zA-Z]:[\\/]/.test(declared)) return null
-  const segments: string[] = []
-  for (const segment of declared.split(/[\\/]/)) {
-    if (segment === '' || segment === '.') continue
-    if (segment === '..') {
-      if (segments.length === 0) return null
-      segments.pop()
-      continue
-    }
-    segments.push(segment)
+function tallyExpressions(patches: readonly PatchDocument[]): Record<ExpressionClass, number> {
+  const tally = Object.fromEntries(EXPRESSION_CLASSES.map(name => [name, 0])) as Record<ExpressionClass, number>
+  for (const patch of patches) {
+    for (const site of patch.expressions) tally[site.classification] += 1
   }
-  return segments.join('/')
+  return tally
 }
 
 /**
@@ -94,27 +100,39 @@ function downgrade(confidence: Confidence, degraded: boolean): Confidence {
 export async function inspect(target: string): Promise<Report> {
   const source = await loadSource(target)
   const manifest = parseManifest(source.files.get('package.json') ?? '')
-  const declaredPatch = normalizeDeclaredPath(manifest.dsh.bundle?.patch)
+  const declared = manifest.dsh.bundle?.patch
+  const mountsAsBundle = declared !== undefined
+  const declaredPatch = declared === undefined ? null : normalizePackagePath(declared)
+  const { mounted, others } = patchFiles(source, declaredPatch)
 
   const patches: PatchDocument[] = []
   const patchFailures: PatchFailure[] = []
-  for (const file of patchFiles(source, declaredPatch)) {
-    const text = source.files.get(file)
-    if (text === undefined) continue
+  if (mounted !== null) {
+    const text = source.files.get(mounted) ?? ''
     try {
-      patches.push(parsePatchDocument(file, text))
+      patches.push(parsePatchDocument(mounted, text))
     } catch (error) {
       if (!(error instanceof PatchParseError)) throw error
-      patchFailures.push({ file, error })
+      patchFailures.push({ file: mounted, error })
     }
   }
 
   const sourceFiles = [...source.files.keys()].filter(isSourceFile).sort()
   const modelVisibleFiles = [...source.files.keys()].filter(isModelVisibleText).sort()
-  const input: CheckInput = { source, manifest, patches, patchFailures, sourceFiles, modelVisibleFiles }
+  const input: CheckInput = {
+    source,
+    manifest,
+    mountsAsBundle,
+    patches,
+    patchFailures,
+    unmountedPatchFiles: others,
+    sourceFiles,
+    modelVisibleFiles,
+  }
 
   const tierC = runTierC(input)
-  const degraded = tierC.length > 0
+  const unreadable = tierC.filter(finding => !NON_DEGRADING_CHECKS.has(finding.checkId))
+  const degraded = unreadable.length > 0
   const raw = [
     ...runTierA(input),
     ...runTierB(input).map(finding => ({ ...finding, confidence: downgrade(finding.confidence, degraded) })),
@@ -126,31 +144,37 @@ export async function inspect(target: string): Promise<Report> {
     packageName: manifest.name,
     packageVersion: manifest.version,
     license: manifest.license,
-    mountsAsBundle: manifest.dsh.bundle?.patch !== undefined,
-    bundlePatchPath: manifest.dsh.bundle?.patch ?? null,
+    mountsAsBundle,
+    bundlePatchPath: declared ?? null,
     shipsClientBundle: manifest.dsh.client !== undefined && manifest.exportPaths.includes('./client'),
+    profileBundles: manifest.dsh.profile?.bundles ?? [],
+    binNames: manifest.binNames,
     insertedRows: patches.flatMap(patch => patch.inserts.map(row => ({
       id: row.id ?? '(unnamed)',
       ...row.name === null ? {} : { name: row.name },
     }))),
     targetedRows: [...new Set(patches.flatMap(patch => patch.overrides.map(override => override.id)))].sort(),
+    jsExpressions: tallyExpressions(patches),
+    unmountedPatchFiles: others,
     dependencies: Object.keys(manifest.dependencies).sort(),
     peerDependencies: Object.keys(manifest.peerDependencies).sort(),
     modelVisibleFiles,
     filesRead: source.files.size,
     bytesRead: source.bytesRead,
     sourceFilesParsed: sourceFiles.length,
+    publishBasis: source.publishBasis,
+    unpublishedFiles: source.unpublishedFiles,
   }
 
   return {
     schemaVersion: 1,
-    tool: { name: TOOL_NAME, version: TOOL_VERSION },
+    tool: { name: TOOL_NAME, version: TOOL_VERSION, harnessReference: HARNESS_REFERENCE },
     target: { kind: source.kind, path: source.path },
     facts,
     analysis: {
       integrity: degraded ? 'degraded' : 'complete',
       negativesReliable: !degraded,
-      degradedBy: [...new Set(tierC.map(finding => finding.checkId))].sort(),
+      degradedBy: [...new Set(unreadable.map(finding => finding.checkId))].sort(),
       filesSkipped: source.skipped,
     },
     summary: summarize(findings),
