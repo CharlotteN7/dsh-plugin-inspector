@@ -86,9 +86,19 @@ entry's chunks into a buffer. There is no `extract` call anywhere in the module.
 Symbolic links in a directory target are recorded and never followed, for the same reason: a link
 pointing outside the package is not part of the package.
 
-**Rejected alternative.** Hand-rolling a tar reader to avoid the dependency. `CONVENTIONS.md` §3
-prefers maintained dependencies where they genuinely delete owned code, and hostile-input parsing
-— PAX headers, long names, sparse entries — is precisely where a hand-rolled parser goes wrong.
+**Rejected alternative.** Hand-rolling a tar reader to avoid the dependency. A maintained
+dependency is worth taking where it genuinely deletes owned code and owned tests, and hostile-input
+parsing — PAX headers, long names, sparse entries — is precisely where a hand-rolled parser goes
+wrong.
+
+The pipeline is nonetheless assembled by hand rather than through `tar.list({ file })`. That
+convenience path applies no backpressure between the inflater and the parser: the inflater runs
+ahead of the entry consumer, and one very large member materialises gigabytes of itself whatever
+the consumer does with it. A `stream.pipeline` of Node streams paces the two against each other.
+Measured on a 28 MB probe holding one 8 GB member, that is 96 MB of resident memory instead of
+4 GB. A counting stage between them fails the read outright past 512 MB of decompressed tar,
+because producing eight gigabytes still costs the time to inflate them and a CI job that hangs on
+a hostile input is a denial of service with extra steps.
 
 ---
 
@@ -178,11 +188,13 @@ worthwhile question — "what am I already running" — and is Phase 3.
 
 ## 10. The coverage gate is a ratchet, not the target
 
-**Decision.** `vitest.config.ts` carries the measured Phase 1 numbers (85 % statements, 89 % lines,
-95 % functions, 69 % branches) rather than the 100 % per-file bar `CONVENTIONS.md` §4 adopts.
+**Decision.** `vitest.config.ts` carries the measured numbers (91 % statements, 95 % lines,
+96 % functions, 81 % branches) rather than the 100 % per-file bar this workspace adopts for
+security code.
 
 **Why.** A gate that fails on every run is not a gate; it is noise that gets removed. Holding the
-measured numbers means a regression fails CI today, while Phase 3 raises them to 100 as the
-uncovered branches — mostly error paths in `manifest.ts` and the read caps in `source.ts` — get
-tests of their own. The comment in the config says exactly this so the number is not mistaken for
-the target.
+measured numbers means a regression fails CI today, and the ratchet moves up as the remaining
+branches get tests of their own. What matters more than the number is *which* lines are covered:
+the resource ceilings, the symlink and escaping-entry refusals, and every check in the catalogue
+now have a case, because those are the lines that carry the safety claims. The comment in the
+config says exactly this so the number is not mistaken for the target.

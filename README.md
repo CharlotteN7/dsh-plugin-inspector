@@ -11,6 +11,22 @@ $ npm pack some-dsh-plugin@1.4.0 --pack-destination /tmp
 $ dsh-inspect /tmp/some-dsh-plugin-1.4.0.tgz
 ```
 
+## Install
+
+Node `^22.19.0 || >=24`. The repository is private and nothing is published to a registry yet, so
+the binary comes from a checkout — and `lib/` is generated, so a fresh clone has no `dsh-inspect`
+until it is built:
+
+```console
+git clone https://github.com/CharlotteN7/dsh-plugin-inspector
+cd dsh-plugin-inspector
+pnpm install
+pnpm run build              # writes lib/, which .gitignore excludes and `files` ships
+node lib/cli.js --help      # or `pnpm link --global` for a `dsh-inspect` on PATH
+```
+
+To run it from source without building, `pnpm run inspect <target>`.
+
 ---
 
 ## Why
@@ -31,9 +47,9 @@ dsh: warning: <pkg> declares no dsh.bundle — installed as a plain dependency, 
 
 The dangerous case prints nothing.
 
-There are roughly 3,800 repos tagged `dsh-plugin`, and no registry, no review, and no signing
-between any of them and your process. This tool exists so that the moment before you install one
-is not a blank.
+There are over 4,000 repos tagged `dsh-plugin` — 4,813 when this was last counted, in August
+2026 — and no registry, no review, and no signing between any of them and your process. This tool
+exists so that the moment before you install one is not a blank.
 
 ## What you get
 
@@ -41,9 +57,19 @@ The report has two halves, and the first one is the point of the tool.
 
 **Facts** — no severity, always printed. Whether the package mounts as a patch layer and from
 which file, whether it ships a browser bundle, which rows it inserts and which existing rows it
-modifies, its dependencies, what model-visible text it ships, and how much of it could be read.
-A well-behaved plugin has a full facts section and an empty findings section. That is a useful
-answer, not an empty one.
+modifies, the `!!js` inventory of the mounted layer, cordis YAML it ships that nothing mounts,
+commands it puts on your PATH, its dependencies, what model-visible text it ships, and how much of
+it could be read. A well-behaved plugin has a full facts section and an empty findings section.
+That is a useful answer, not an empty one.
+
+That is also the bar the tool is held to. Across twelve real targets — four plugins read both as a
+directory and as their published tarball, the three bundles the harness itself ships, and a
+scratch plugin — the current build reports **49 findings: none critical, two high, and exactly one
+target exiting non-zero.** Both high findings are true statements about `@deepseek-ai/dsh-web-app`'s
+own shipped code, which does contribute to the system prompt and does mount further plugins. The
+upstream plugin template reports three findings, all `node:fs` and `dshHomePath` facts about what
+it genuinely does; the base and headless bundles report three and one. Every packable target's
+directory reading and tarball reading are byte-identical.
 
 **Findings** — ranked, in three tiers:
 
@@ -100,28 +126,52 @@ dsh-inspect /tmp/plugin
 ```
 
 A tarball is decoded **entirely in memory**. Nothing is written to disk, which makes tar path
-traversal structurally impossible rather than something a filter has to catch.
+traversal structurally impossible rather than something a filter has to catch. Every read ceiling
+is applied to the arriving stream rather than to a finished buffer, so a 28 MB archive holding one
+8 GB member is a refusal in under two seconds, not an out-of-memory kill.
+
+### Directory mode reads the working tree, not "the package"
+
+The two targets are not the same thing and the report says which one you gave it.
+
+A **tarball** is the published package: exactly the bytes a user installs. A **directory** is a
+repository checkout, which holds far more — tests, fixtures, CI config, build scratch. None of that
+is installed, none of it is mounted, and none of it can act on anybody, so the directory reader is
+narrowed to the set `npm pack` would produce: the `files` allowlist when the manifest declares one,
+otherwise `.npmignore` or `.gitignore` under npm's defaults. The facts section names which rule it
+used and how many working-tree files it skipped.
+
+This matters more than it sounds. Reading a checkout whole means a hostile *test fixture* — a file
+that ships nowhere and mounts nothing — is reported at `critical` with `certain` confidence. That
+is not a conservative error; it is the tool being confidently wrong about the one tier it treats as
+a verdict.
 
 ## What it looks for
 
 Full catalogue with detection methods in [`PLAN.md`](./PLAN.md) §6. The short version:
 
-**Tier A** — install lifecycle scripts; a patch row disabling or rewriting a core row (with
-`approval`, `permission`, `sandbox`, `sandbox-policy`, `fs-sandbox`, `fs-observation-policy`,
-`subprocess`, `credentials` and friends called out by name); the complete `!!js` inventory,
-classified by what each expression reaches; `!!js` in a field the loader never interpolates;
-`!js`, which is a hard parse error and proves the layer has never loaded anywhere; inserted rows
-naming modules the manifest does not declare; MCP server rows; `dsh.bundle.patch` paths that
-escape the package; skill-root redirection; non-registry dependency specifiers.
+**Tier A** — install lifecycle scripts; a patch row disabling, re-enabling, or rewriting a core row
+(with `approval`, `permission`, `sandbox`, `sandbox-policy`, `fs-sandbox`, `fs-observation-policy`,
+`subprocess`, `credentials` and friends called out by name); the `!!js` inventory, classified by
+what each expression reaches; `!!js` in a field the loader never interpolates; `!js`, which is a
+hard parse error and proves the layer has never loaded anywhere; inserted rows naming modules the
+manifest does not declare; rows that re-map a service for their subtree with `isolate` or
+`intercept`; MCP server rows; `dsh.bundle.patch` paths that climb out of the package;
+skill-root redirection; a `dsh.profile.bundles` list, which makes the package a profile that mounts
+other packages; commands installed on your PATH; non-registry dependency specifiers; and injection
+phrasing in shipped instruction markdown, which is Tier A because the shipped bytes *are* the
+prompt.
 
 **Tier B** — capability-seam replacement via `ctx.provide` / `ctx.set`; system-prompt mutation;
 credential reads; network egress; the two of those together; `node:child_process`,
-`node:worker_threads`, `node:vm`; filesystem access outside `ctx.fs`; runtime code construction;
-nested plugin mounting; prompt-injection heuristics run on model-visible text only — shipped
-skill markdown and registered tool `description` strings.
+`node:worker_threads`, `node:vm`; filesystem access outside `ctx.fs`; code built at runtime **and
+called**; nested plugin mounting; injection phrasing in registered tool `description` strings,
+which code assembles and which is therefore evadable.
 
-**Tier C** — minified source; computed member access, specifiers, and names; build output with
-no source; binaries and files over the read caps.
+**Tier C** — minified source; computed member access, specifiers, and names; binaries and files
+over the read caps; a patch layer whose structure hit a walk ceiling; and build output with no
+source beside it, which is the one Tier C finding that does *not* degrade the analysis — the bytes
+were read exactly as they will run, and only their provenance is unverifiable.
 
 ## The ceiling
 
@@ -166,22 +216,24 @@ issues capability reports.
 
 ### And when the tool cannot read the package
 
-If any Tier C check fires, every Tier B confidence drops to `moderate`, `analysis.integrity`
-becomes `degraded`, `analysis.negativesReliable` becomes `false`, and the human report is
-**forbidden from printing "no findings"**. A clean-looking report on a minified bundle would be
-worse than no report, so the tool refuses to produce one.
+If any Tier C check that says something could not be *read* fires, every Tier B confidence drops to
+`moderate`, `analysis.integrity` becomes `degraded`, `analysis.negativesReliable` becomes `false`,
+and the human report is **forbidden from printing "no findings"**. A clean-looking report on a
+minified bundle would be worse than no report, so the tool refuses to produce one.
 
 The honest form of a clean result is: *nothing was found at or above the threshold, in the parts
 that could be read.*
 
 ## Development
 
+Node `^22.19.0 || >=24` and pnpm are the only requirements; there is no network and no harness
+checkout in any test.
+
 ```console
-. ../env.sh                 # Node 22.23.2 + pnpm 11.7.0
 pnpm install
 pnpm run typecheck
-pnpm run test               # unit suite, no network, no harness checkout
-pnpm run test:coverage
+pnpm run test               # unit suite
+pnpm run test:coverage      # same suite, with the coverage ratchet
 pnpm run test:e2e           # builds, then runs the real binary as a subprocess
 pnpm run inspect <target>   # run from source without building
 ```
@@ -190,7 +242,9 @@ Hostile fixtures live in `tests/fixtures/` and are authored here — a plugin th
 approval row, one whose `!!js` calls `child_process`, one with a `postinstall`, one pairing a
 credential read with `fetch`, one shipping a `SKILL.md` full of injection text, one declaring an
 MCP stdio server, a minified one, one using the `!js` tag, one whose bundle patch path escapes the
-package, and a benign control that must produce **zero** findings.
+package, and a benign control that must produce **zero** findings. They are deliberately hostile
+and structurally inert; [`tests/fixtures/README.md`](./tests/fixtures/README.md) says why, and
+which of them is a live prompt-injection payload you should not copy anywhere.
 
 `tests/fixtures/execution-canary/` is the proof that nothing runs: its install scripts, its `!!js`
 expressions, and its module top level all write a sentinel file, and the test asserts the sentinel
@@ -200,6 +254,12 @@ mocked to throw for the whole suite, so a stray call fails the tests rather than
 Design decisions are in [`ADR.md`](./ADR.md); the scope, catalogue, and phasing are in
 [`PLAN.md`](./PLAN.md).
 
+## Reporting a problem
+
+Security reports go to the address in [`SECURITY.md`](./SECURITY.md), which also says what counts
+as a vulnerability in a tool whose whole job is reading hostile input. A check that fires on
+ordinary code is a real defect — please open a normal issue for it.
+
 ## License
 
-MIT
+MIT — see [`LICENSE`](./LICENSE).

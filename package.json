@@ -4,6 +4,18 @@
   "description": "Know what a DeepSeek Harness plugin does before you install it — static pre-install analysis of a plugin directory or tarball",
   "license": "MIT",
   "private": true,
+  "author": "Ivan Tyshchenko",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/CharlotteN7/dsh-plugin-inspector.git"
+  },
+  "bugs": {
+    "url": "https://github.com/CharlotteN7/dsh-plugin-inspector/issues"
+  },
+  "homepage": "https://github.com/CharlotteN7/dsh-plugin-inspector#readme",
+  "engines": {
+    "node": "^22.19.0 || >=24"
+  },
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",
