@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-inspector",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Know what a DeepSeek Harness plugin does before you install it — static pre-install analysis of a plugin directory or tarball",
   "license": "MIT",
   "author": "Ivan Tyshchenko",
