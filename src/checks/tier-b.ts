@@ -137,6 +137,7 @@ function moduleSpecifiers(file: ParsedFile): { specifier: string, node: ts.Node 
   const visit = (node: ts.Node): void => {
     if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier !== undefined) {
       const text = literalText(node.moduleSpecifier)
+      /* v8 ignore next -- an import declaration only parses with a string-literal specifier. */
       if (text !== null) found.push({ specifier: text, node })
     }
     if (ts.isCallExpression(node)) {
@@ -434,6 +435,7 @@ export function runTierB(input: CheckInput): Finding[] {
   const accumulator: Accumulator = { findings: [], credentialRead: null, networkCall: null }
   for (const path of input.sourceFiles) {
     const text = input.source.files.get(path)
+    /* v8 ignore next -- `sourceFiles` is filtered from `source.files`'s own keys, so the lookup always hits. */
     if (text === undefined) continue
     const file: ParsedFile = {
       path,
@@ -507,15 +509,18 @@ function pairFinding(accumulator: Accumulator): Finding | null {
   // finding's own text says it is not a verdict. A severity that says "do not
   // treat this as a verdict" cannot be the top one.
   const severity: Severity = 'high'
+  /* v8 ignore start -- `at()` records a line and column for every finding these two come from. */
+  const credentialSite = `${credential.evidence.file}:${credential.evidence.path ?? '?'}`
+  const networkSite = `${network.evidence.file}:${network.evidence.path ?? '?'}`
+  /* v8 ignore stop */
   return tierB({
     checkId: 'B8',
     name: 'exfiltration-capability',
     subject: 'credential-and-egress',
     severity,
     title: 'This package can read a credential and can make a network call',
-    detail: 'This is a capability, not a dataflow. The tool found a credential read at '
-      + `${credential.evidence.file}:${credential.evidence.path ?? '?'} and a network call at `
-      + `${network.evidence.file}:${network.evidence.path ?? '?'}. It has NOT shown that the credential value `
+    detail: `This is a capability, not a dataflow. The tool found a credential read at ${credentialSite} `
+      + `and a network call at ${networkSite}. It has NOT shown that the credential value `
       + 'reaches the request, and it cannot: proving that needs value tracking this tool does not do. Many '
       + 'legitimate packages — any telemetry or authenticated API client — trip this pair for good reasons. Treat '
       + 'it as a prompt to read those two sites, not as a verdict.',

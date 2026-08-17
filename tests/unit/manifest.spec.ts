@@ -8,7 +8,7 @@
  */
 
 import { afterAll, describe, expect, it } from 'vitest'
-import { inspect } from '../../src/inspect.ts'
+import { analyze, inspect } from '../../src/inspect.ts'
 import { declaredPackages, ManifestError, parseManifest } from '../../src/manifest.ts'
 import { renderHuman } from '../../src/report.ts'
 import { cleanupPackages, createPackage } from './package-fixture.ts'
@@ -48,6 +48,14 @@ describe('a manifest with fields of the wrong shape', () => {
   it('reads the string form of `bin` as one command named after the package', () => {
     expect(parseManifest('{"name":"tool","version":"1","bin":"./lib/cli.js"}').binNames).toEqual(['tool'])
     expect(parseManifest('{"name":"tool","version":"1","bin":7}').binNames).toEqual([])
+    // The command a nameless package installs still has to be printable.
+    expect(parseManifest('{"version":"1","bin":"./lib/cli.js"}').binNames).toEqual(['<unnamed>'])
+  })
+
+  it('reads `dsh.bundle` with no patch path as a bundle section that mounts no layer', () => {
+    const manifest = parseManifest('{"name":"p","version":"1","dsh":{"bundle":{}}}')
+    expect(manifest.dsh.bundle).toEqual({})
+    expect(manifest.defects).toEqual([])
   })
 
   it('counts every package the manifest admits it may load', () => {
@@ -56,6 +64,22 @@ describe('a manifest with fields of the wrong shape', () => {
       dependencies: { a: '1' }, peerDependencies: { b: '1' }, optionalDependencies: { c: '1' },
     }))
     expect([...declaredPackages(manifest)].sort()).toEqual(['a', 'b', 'c', 'self'])
+  })
+})
+
+describe('analysing a decoded package that carries no manifest', () => {
+  it('refuses it rather than reporting an unnamed package with no findings', () => {
+    // `loadSource` refuses such a target, but `analyze` is exported for a
+    // caller that decoded the bytes itself, and it must refuse the same input.
+    expect(() => analyze({
+      kind: 'directory',
+      path: '/nowhere',
+      files: new Map([['lib/index.js', 'export const a = 1\n']]),
+      skipped: [],
+      bytesRead: 0,
+      publishBasis: 'ignore-rules',
+      unpublishedFiles: 0,
+    })).toThrow(ManifestError)
   })
 })
 
@@ -94,6 +118,47 @@ describe('the human report', () => {
     // The example layer is shipped and is not mounted, so it is a fact.
     expect(text).toContain('examples/personal.cordis.yml')
     expect(report.findings.some(finding => finding.checkId === 'A2')).toBe(false)
+  })
+
+  it('prints a finding with no excerpt, an unnamed row, and the ignore-rule file set', async () => {
+    const report = await inspect(createPackage({
+      'package.json': JSON.stringify({
+        name: 'unlisted', version: '1.0.0',
+        dsh: { bundle: { patch: './cordis.patch.yml' } },
+      }),
+      'cordis.patch.yml': '- insert:\n    - id: mine\n',
+      'SKILL.md': '---\nname: build\ndescription: Builds.\n---\n\nBuilds the project.\n',
+    }))
+    const text = renderHuman(report, false)
+    expect(text).toContain('npm defaults over .npmignore/.gitignore')
+    expect(text).toContain('rows inserted   mine')
+    expect(text).toContain('model-visible   SKILL.md')
+    // A13 carries no excerpt: the finding is that a key is absent.
+    expect(text).not.toContain('> undefined')
+  })
+
+  it('prints what the registry said about an install script before anything was fetched', () => {
+    const report = analyze({
+      kind: 'registry',
+      path: 'demo@1.0.0',
+      files: new Map([['package.json', '{"name":"demo","version":"1.0.0","files":["lib/**/*.js"]}']]),
+      skipped: [],
+      bytesRead: 0,
+      publishBasis: 'tarball',
+      unpublishedFiles: 0,
+    }, {
+      spec: 'demo@1.0.0',
+      registry: 'https://registry.npmjs.org',
+      resolvedVersion: '1.0.0',
+      tarball: 'https://registry.npmjs.org/demo/-/demo-1.0.0.tgz',
+      digest: 'sha512-…',
+      algorithm: 'sha512',
+      hasInstallScript: true,
+      metadataBytes: 100,
+      tarballBytes: 200,
+    })
+    expect(renderHuman(report, false)).toContain('the registry marks this package as running one at install time')
+    expect(renderHuman(report, false)).toContain('the tarball as published')
   })
 
   it('colours a finding when asked, and leaves the text intact when not', async () => {

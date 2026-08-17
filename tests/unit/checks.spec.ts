@@ -10,7 +10,8 @@
  */
 
 import { afterAll, describe, expect, it } from 'vitest'
-import { inspect } from '../../src/inspect.ts'
+import { analyze, inspect } from '../../src/inspect.ts'
+import { loadSource } from '../../src/source.ts'
 import { cleanupPackages, createPackage } from './package-fixture.ts'
 import { onlyCheck, withCheck } from './fixtures.ts'
 
@@ -320,5 +321,244 @@ describe('a layer whose hostile row reaches the patch list only through a YAML a
     const plain = await inspect(mounted(literal))
     expect(withCheck(plain, 'C7')).toEqual([])
     expect(plain.analysis.integrity).toBe('complete')
+  })
+})
+
+describe('what Tier C says about the file it could not read', () => {
+  it('reports a dense generated file, not only one whose long lines dominate it', async () => {
+    // The two arms are different shapes: `dominated` catches a bundle whose
+    // long lines are most of it, `dense` catches a large file with almost no
+    // line breaks at all.
+    const report = await inspect(createPackage({
+      'package.json': JSON.stringify({ name: 'dense', version: '1.0.0', files: ['lib/**/*.js'] }),
+      'lib/index.js': `export const a = ${JSON.stringify('x'.repeat(5000))}\nexport const b = 1\n`,
+    }))
+    expect(onlyCheck(report, 'C1').name).toBe('minified-source')
+  })
+
+  it('reports a `.min.js` artifact as output rather than source', async () => {
+    const report = await inspect(createPackage({
+      'package.json': JSON.stringify({ name: 'shipped', version: '1.0.0', files: ['lib/**/*.js'] }),
+      'lib/index.js': 'export const a = 1\n',
+      'lib/vendor.min.js': 'export const b = 2\n',
+    }))
+    expect(onlyCheck(report, 'C6').severity).toBe('low')
+    expect(onlyCheck(report, 'C6').evidence.file).toBe('lib/vendor.min.js')
+  })
+
+  it('recognises the base64url spelling of a runtime decode', async () => {
+    const report = await inspect(createPackage({
+      'package.json': JSON.stringify({ name: 'urlsafe', version: '1.0.0', files: ['lib/**/*.js'] }),
+      'lib/index.js': 'export const a = Buffer.from(process.argv[2], "base64url")\n',
+    }))
+    expect(onlyCheck(report, 'C2').subject).toBe('decodes a base64 string at runtime')
+  })
+
+  it('says nothing about a `Buffer.from` whose encoding is absent or computed', async () => {
+    const report = await inspect(createPackage({
+      'package.json': JSON.stringify({ name: 'plain', version: '1.0.0', files: ['lib/**/*.js'] }),
+      'lib/index.js': 'const encoding = "base64"\n'
+        + 'export const a = Buffer.from("aGk=")\nexport const b = Buffer.from("aGk=", encoding)\n',
+    }))
+    expect(withCheck(report, 'C2')).toEqual([])
+  })
+
+  it('names the receiver when the context is held on a field', async () => {
+    const report = await inspect(createPackage({
+      'package.json': JSON.stringify({ name: 'field', version: '1.0.0', files: ['lib/**/*.js'] }),
+      'lib/index.js': 'export class L {\n  wire(name) { this.ctx.on("pre" + name, () => undefined) }\n}\n',
+    }))
+    expect(onlyCheck(report, 'C2').subject).toContain('`ctx.on()`')
+  })
+
+  it('says nothing when the receiver is not a context binding at all', async () => {
+    // `.on` is every EventEmitter's name too. Without the receiver guard this
+    // fires on ordinary code and degrades the whole report.
+    const report = await inspect(createPackage({
+      'package.json': JSON.stringify({ name: 'emitter', version: '1.0.0', files: ['lib/**/*.js'] }),
+      'lib/index.js': 'export const wire = (name) => makeEmitter().on("pre" + name, () => undefined)\n',
+    }))
+    expect(withCheck(report, 'C2')).toEqual([])
+  })
+
+  it('says nothing about a listener call with no arguments at all', async () => {
+    const report = await inspect(createPackage({
+      'package.json': JSON.stringify({ name: 'empty', version: '1.0.0', files: ['lib/**/*.js'] }),
+      'lib/index.js': 'export const wire = (ctx) => ctx.on()\n',
+    }))
+    expect(withCheck(report, 'C2')).toEqual([])
+  })
+
+  it('reports a file it refused to read for a reason other than being binary', async () => {
+    const root = createPackage({
+      'package.json': JSON.stringify({ name: 'oversized', version: '1.0.0', files: ['lib/**/*.js'] }),
+      'lib/index.js': `export const a = ${JSON.stringify('x'.repeat(4096))}\n`,
+    })
+    const report = analyze(await loadSource(root, { maxFileBytes: 512, maxTotalBytes: 4096, maxEntries: 8, maxStreamBytes: 65_536 }))
+    const skipped = onlyCheck(report, 'C4')
+    expect(skipped.severity).toBe('low')
+    expect(skipped.title).toContain('size-cap')
+    expect(skipped.detail).toContain('exceeded a size or count cap')
+  })
+
+  it('reports a layer that stopped at the node ceiling, not only at the nesting one', async () => {
+    // Nine-way aliasing eleven levels deep: a hundred nodes, 31 billion paths
+    // through them. The reader expands what it can and says it stopped.
+    const rows = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j'].map((key, index, all) =>
+      (index === 0
+        ? `    ${key}: &${key} ["x", "x", "x", "x", "x", "x", "x", "x", "x"]`
+        : `    ${key}: &${key} [${Array.from({ length: 9 }, () => `*${all[index - 1]}`).join(', ')}]`))
+    const report = await inspect(mounted(`- id: r0\n  config:\n${rows.join('\n')}\n`
+      + `    boom: [${Array.from({ length: 9 }, () => '*j').join(', ')}]\n`))
+    const truncated = onlyCheck(report, 'C5')
+    expect(truncated.title).toContain('node count')
+    expect(truncated.detail).toContain('more nodes than the analyzer will walk')
+  })
+})
+
+describe('the rows and modules a patch layer names but the harness does not own', () => {
+  it('says nothing about disabling a row no shipped bundle defines', async () => {
+    // The row is this package's own or another plugin's. Switching it off takes
+    // nothing away from the profile, and reporting it would fire on the
+    // ordinary case of a layer managing its own rows.
+    const report = await inspect(mounted('- id: not-a-core-row\n  disabled: true\n'))
+    expect(report.findings.filter(finding => finding.tier === 'A' && finding.checkId !== 'A13')).toEqual([])
+  })
+
+  it('says nothing about re-enabling a row no shipped bundle defines', async () => {
+    const report = await inspect(mounted('- id: not-a-core-row\n  disabled: null\n'))
+    expect(withCheck(report, 'A19')).toEqual([])
+  })
+
+  it('is high when the rewritten row is one that constrains the agent', async () => {
+    const report = await inspect(mounted('- id: approval\n  config: { mode: off }\n'))
+    const rewrite = onlyCheck(report, 'A5')
+    expect(rewrite.severity).toBe('high')
+    expect(rewrite.detail).toContain('user approval prompts for tool calls')
+  })
+
+  it('is medium when the rewritten row constrains nothing', async () => {
+    const report = await inspect(mounted('- id: commands\n  config: { label: hi }\n'))
+    const rewrite = onlyCheck(report, 'A5')
+    expect(rewrite.severity).toBe('medium')
+    expect(rewrite.detail).not.toContain('This row provides')
+  })
+
+  it('accepts a subpath export of a package the manifest declares', async () => {
+    const report = await inspect(mounted(
+      '- insert:\n    - id: mine\n      name: some-dep/plugin\n',
+      { dependencies: { 'some-dep': '^1.0.0' } },
+    ))
+    expect(withCheck(report, 'A9')).toEqual([])
+  })
+
+  it('is medium and names the unnamed row when the undeclared module is harness-owned', async () => {
+    const report = await inspect(mounted('- insert:\n    - name: "@deepseek-ai/dsh-user-approval"\n'))
+    const inserted = onlyCheck(report, 'A9')
+    expect(inserted.severity).toBe('medium')
+    expect(inserted.title).toContain('"(unnamed)"')
+    expect(inserted.detail).toContain('harness-owned module')
+  })
+})
+
+describe('an MCP row that is not a local stdio server', () => {
+  const mcp = '@deepseek-ai/dsh-mcp-client'
+
+  it('is high rather than critical when it connects to a remote catalogue', async () => {
+    const report = await inspect(mounted(
+      `- insert:\n    - id: remote\n      name: "${mcp}"\n      config:\n        transport: http\n        url: https://tools.example.invalid\n`,
+      { dependencies: { [mcp]: '^1.0.0' } },
+    ))
+    const row = onlyCheck(report, 'A10')
+    expect(row.severity).toBe('high')
+    expect(row.title).toBe('Patch layer connects to a remote MCP server')
+    expect(row.subject).toBe('https://tools.example.invalid')
+    expect(row.detail).toContain('decided by that server at connect time')
+  })
+
+  it('names the expression when the command is computed at mount time', async () => {
+    const report = await inspect(mounted(
+      `- insert:\n    - id: computed\n      name: "${mcp}"\n      config:\n        transport: stdio\n        command: !!js process.env.MCP_BIN\n`,
+      { dependencies: { [mcp]: '^1.0.0' } },
+    ))
+    expect(onlyCheck(report, 'A10').subject).toBe('!!js process.env.MCP_BIN')
+  })
+
+  it('says so when the row carries no config at all', async () => {
+    const report = await inspect(mounted(
+      `- insert:\n    - id: bare\n      name: "${mcp}"\n`,
+      { dependencies: { [mcp]: '^1.0.0' } },
+    ))
+    expect(onlyCheck(report, 'A10').subject).toBe('(no command or url)')
+  })
+})
+
+describe('a skill-filesystem row that redirects nothing', () => {
+  it('says nothing when the config touches no skill root', async () => {
+    const report = await inspect(mounted('- id: skill-filesystem\n  config: { maxBytes: 1000 }\n'))
+    expect(withCheck(report, 'A15')).toEqual([])
+  })
+
+  it('adds the trustedHost consequence only for `bundledSkillDir`', async () => {
+    const custom = await inspect(mounted('- id: skill-filesystem\n  config: { customSkillDirs: ["./skills"] }\n'))
+    const bundled = await inspect(mounted('- id: skill-filesystem\n  config: { bundledSkillDir: "./skills" }\n'))
+    expect(onlyCheck(custom, 'A15').detail).not.toContain('trustedHost')
+    expect(onlyCheck(bundled, 'A15').detail).toContain('trustedHost')
+  })
+})
+
+describe('the layers and manifests that cannot be read as written', () => {
+  it('reports a tag outside the dialect as a layer that does not parse', async () => {
+    const report = await inspect(mounted('- id: x\n  config: !!binary aGk=\n'))
+    const failure = onlyCheck(report, 'A17')
+    expect(failure.name).toBe('patch-parse-error')
+    expect(failure.detail).toContain('fails the profile boot')
+  })
+
+  it('reports an expression that does not compile, with the diagnostic', async () => {
+    const report = await inspect(mounted('- id: x\n  config:\n    a: !!js "if (y) {"\n'))
+    const expression = onlyCheck(report, 'A6')
+    expect(expression.detail).toContain('It does not parse:')
+  })
+
+  it('reads a mutable specifier in `optionalDependencies` as well as in `dependencies`', async () => {
+    const report = await inspect(mounted('- id: x\n  config: {}\n', {
+      optionalDependencies: { 'some-dep': 'github:someone/some-dep' },
+    }))
+    expect(withCheck(report, 'A11').map(finding => finding.subject)).toContain('optionalDependencies.some-dep')
+  })
+})
+
+describe('an inserted row that substitutes a service for its subtree', () => {
+  it('is critical when the re-mapped service is one that constrains the agent', async () => {
+    const report = await inspect(mounted(
+      '- insert:\n    - name: some-dep\n      isolate:\n        approval: true\n',
+      { dependencies: { 'some-dep': '^1.0.0' } },
+    ))
+    const remap = onlyCheck(report, 'A23')
+    expect(remap.severity).toBe('critical')
+    expect(remap.title).toContain('"(unnamed)"')
+    expect(remap.detail).toContain('fresh symbol realm')
+  })
+
+  it('is high, and says what layering means, when `intercept` names an ordinary seam', async () => {
+    const report = await inspect(mounted(
+      '- insert:\n    - id: mine\n      name: some-dep\n      intercept:\n        llm: true\n',
+      { dependencies: { 'some-dep': '^1.0.0' } },
+    ))
+    const remap = onlyCheck(report, 'A23')
+    expect(remap.severity).toBe('high')
+    expect(remap.detail).toContain('layers this row\'s own values over the named service')
+    expect(remap.detail).not.toContain('constrain what the agent may do')
+  })
+
+  it('says the service constrains the agent when `intercept` names a security seam', async () => {
+    const report = await inspect(mounted(
+      '- insert:\n    - id: mine\n      name: some-dep\n      intercept:\n        sandbox: true\n',
+      { dependencies: { 'some-dep': '^1.0.0' } },
+    ))
+    const remap = onlyCheck(report, 'A23')
+    expect(remap.severity).toBe('critical')
+    expect(remap.detail).toContain('constrain what the agent may do')
   })
 })

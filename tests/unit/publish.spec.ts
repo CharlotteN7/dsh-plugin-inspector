@@ -5,7 +5,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { globMatch, publishSet, type PublishInputs } from '../../src/publish.ts'
+import { globMatch, publishSet, TARBALL_PUBLISH_SET, type PublishInputs } from '../../src/publish.ts'
 
 /**
  * Build a publish set from partial inputs.
@@ -27,6 +27,21 @@ describe('glob matching', () => {
     expect(globMatch('lib/*.js', 'lib/index.js')).toBe(true)
     expect(globMatch('lib/*.js', 'lib/deep/index.js')).toBe(false)
   })
+
+  it('takes exactly one character for `?`', () => {
+    expect(globMatch('lib/index?.js', 'lib/index2.js')).toBe(true)
+    expect(globMatch('lib/index?.js', 'lib/index.js')).toBe(false)
+  })
+
+  it('does not backtrack on a pattern written to make it', () => {
+    // `files` comes from an untrusted manifest. Several `**` in a row give a
+    // regular-expression matcher exponentially many ways to split the path; the
+    // memo makes each (pattern, path) position pair cost one visit.
+    const started = Date.now()
+    expect(globMatch('**/**/**/**/**/**/**/**/**/**/*.js', 'a/b/c/d/e/f/g/h/i/j/k/l/index.ts')).toBe(false)
+    expect(globMatch('**/**/**/*.js', 'a/b/c/index.js')).toBe(true)
+    expect(Date.now() - started).toBeLessThan(1_000)
+  })
 })
 
 describe('a `files` allowlist', () => {
@@ -47,6 +62,22 @@ describe('a `files` allowlist', () => {
 
   it('treats a bare directory name as the whole subtree', () => {
     expect(set({ files: ['lib'] }).includes('lib/deep/index.js')).toBe(true)
+  })
+
+  it('honours a `!` entry, which excludes from what the rest of the list allows', () => {
+    const partial = set({ files: ['lib/**/*.js', '!lib/secret.js'] })
+    expect(partial.includes('lib/index.js')).toBe(true)
+    expect(partial.includes('lib/secret.js')).toBe(false)
+  })
+
+  it('ships `main` even when the allowlist does not name it, as npm does', () => {
+    const elsewhere = set({ files: ['cordis.patch.yml'], main: './lib/index.js' })
+    expect(elsewhere.includes('lib/index.js')).toBe(true)
+    expect(elsewhere.includes('lib/other.js')).toBe(false)
+  })
+
+  it('publishes nothing for an entry that names no path', () => {
+    expect(set({ files: ['/'] }).includes('lib/index.js')).toBe(false)
   })
 
   it('refuses what npm never publishes, even when the allowlist names it', () => {
@@ -81,9 +112,22 @@ describe('no `files` allowlist', () => {
     expect(published.includes('docs/guide.md')).toBe(true)
   })
 
+  it('ships `main` even when an ignore rule would have dropped it', () => {
+    expect(set({ npmignore: 'lib/\n', main: './lib/index.js' }).includes('lib/index.js')).toBe(true)
+    expect(set({ npmignore: 'lib/\n', main: './lib/index.js' }).includes('lib/other.js')).toBe(false)
+  })
+
   it('anchors a rule with a leading slash to the root', () => {
     const published = set({ gitignore: '/build/\n' })
     expect(published.includes('build/out.js')).toBe(false)
     expect(published.includes('packages/build/out.js')).toBe(true)
+  })
+})
+
+describe('a tarball', () => {
+  it('is already the publish set, so every entry in it was published', () => {
+    expect(TARBALL_PUBLISH_SET.basis).toBe('tarball')
+    expect(TARBALL_PUBLISH_SET.includes('lib/index.js')).toBe(true)
+    expect(TARBALL_PUBLISH_SET.includes('anything/at/all')).toBe(true)
   })
 })

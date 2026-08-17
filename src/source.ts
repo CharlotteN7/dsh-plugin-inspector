@@ -37,11 +37,21 @@ export const MAX_TOTAL_BYTES = 64 * 1024 * 1024
 /** Largest number of files the analyzer will consider. */
 export const MAX_ENTRIES = 10_000
 
+/**
+ * Decompressed tar bytes one tarball may produce before the read is abandoned.
+ *
+ * Eight times the in-memory ceiling. A plugin tarball is never this large, and
+ * one that is has already answered the only question worth asking about it.
+ */
+export const MAX_STREAM_BYTES = 8 * MAX_TOTAL_BYTES
+
 /** The resource ceilings one read runs under. */
 export interface ReadLimits {
   readonly maxFileBytes: number
   readonly maxTotalBytes: number
   readonly maxEntries: number
+  /** Decompressed tar bytes one tarball may produce before the read is abandoned. */
+  readonly maxStreamBytes: number
 }
 
 /** The shipping ceilings. Tests substitute smaller ones to exercise each cap. */
@@ -49,6 +59,7 @@ export const DEFAULT_LIMITS: ReadLimits = {
   maxFileBytes: MAX_FILE_BYTES,
   maxTotalBytes: MAX_TOTAL_BYTES,
   maxEntries: MAX_ENTRIES,
+  maxStreamBytes: MAX_STREAM_BYTES,
 }
 
 /** Directories never descended into: not shipped, and not the package's own code. */
@@ -126,6 +137,7 @@ function countEntry(collector: Collector, path: string): boolean {
  * @param buffer - the file content.
  */
 function store(collector: Collector, path: string, buffer: Buffer): void {
+  /* v8 ignore next 4 -- both callers check the size before reading; this is the same ceiling held at the last point that could still allocate. */
   if (buffer.byteLength > collector.limits.maxFileBytes) {
     collector.skipped.push({ path, reason: 'size-cap' })
     return
@@ -216,6 +228,7 @@ function stripRoot(entryPath: string): string | undefined {
   const slash = normalized.indexOf('/')
   if (slash < 0) return undefined
   const remainder = normalized.slice(slash + 1)
+  /* v8 ignore next -- an entry name ending in `/` is a directory entry, which the parser never hands to this. */
   if (remainder === '') return undefined
   const segments: string[] = []
   for (const segment of remainder.split('/')) {
@@ -229,14 +242,6 @@ function stripRoot(entryPath: string): string | undefined {
   }
   return segments.length === 0 ? undefined : segments.join('/')
 }
-
-/**
- * Decompressed tar bytes one tarball may produce before the read is abandoned.
- *
- * Eight times the in-memory ceiling. A plugin tarball is never this large, and
- * one that is has already answered the only question worth asking about it.
- */
-export const MAX_STREAM_BYTES = 8 * MAX_TOTAL_BYTES
 
 /**
  * A stage that fails the pipeline once the decompressed stream passes a
@@ -348,7 +353,7 @@ async function readTarStream(bytes: Readable, gzipped: boolean, collector: Colle
     },
   })
   const inflate = gzipped ? createGunzip() : new PassThrough()
-  await pipeline(bytes, inflate, byteCeiling(MAX_STREAM_BYTES), parser)
+  await pipeline(bytes, inflate, byteCeiling(collector.limits.maxStreamBytes), parser)
   await Promise.all(pending)
   if (failure !== null) throw failure
 }

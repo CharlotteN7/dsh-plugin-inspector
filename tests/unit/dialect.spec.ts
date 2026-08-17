@@ -31,6 +31,29 @@ describe('expression classification', () => {
     expect(classifyExpression("require('fs').readFileSync(dshHomePath('x'))").class).toBe('module-access')
   })
 
+  it('grades a member named for the module system as a module reach', () => {
+    expect(classifyExpression('value.constructor').class).toBe('module-access')
+    expect(classifyExpression("import('node:fs')").class).toBe('module-access')
+  })
+
+  it('grades every form that writes as a mutation', () => {
+    expect(classifyExpression('counter++').class).toBe('mutation')
+    expect(classifyExpression('--counter').class).toBe('mutation')
+    expect(classifyExpression('delete target.key').class).toBe('mutation')
+  })
+
+  it('grades a constructor call and a call the callee itself returns as calls', () => {
+    expect(classifyExpression('new Agent()').class).toBe('call')
+    // The callee is a call expression, not a name this tool can look up in the
+    // table of helpers the harness provides.
+    expect(classifyExpression('resolve()()').class).toBe('call')
+  })
+
+  it('does not read `-x` or `!x` as a write', () => {
+    expect(classifyExpression('-timeout').class).toBe('inert-read')
+    expect(classifyExpression('!enabled').class).toBe('inert-read')
+  })
+
   it('reports an unparseable expression instead of throwing', () => {
     const result = classifyExpression('if (x) {')
     expect(result.class).toBe('unparseable')
@@ -115,6 +138,51 @@ describe('the patch model', () => {
 `)
     expect(parsed.inserts.map(row => row.id)).toEqual(['outer', 'inner'])
     expect(parsed.expressions.map(site => site.path)).toEqual(['[0].insert[0].config[0].config.key'])
+  })
+})
+
+describe('rows the walk reads past rather than into', () => {
+  it('skips a patch entry with no id and no insert, which patches nothing', () => {
+    const parsed = parsePatchDocument('cordis.patch.yml', '- config: { a: 1 }\n- id: approval\n  disabled: true\n')
+    expect(parsed.overrides.map(override => override.id)).toEqual(['approval'])
+  })
+
+  it('skips a scalar where an inserted row should be', () => {
+    const parsed = parsePatchDocument('cordis.patch.yml', '- insert:\n    - 1\n    - id: mine\n')
+    expect(parsed.inserts.map(row => row.id)).toEqual(['mine'])
+  })
+
+  it('reads a group carrier that has no id of its own', () => {
+    const parsed = parsePatchDocument('cordis.patch.yml', `
+- insert:
+    - group: true
+      config:
+        - id: inner
+          name: inner-plugin
+`)
+    expect(parsed.inserts.map(row => row.id)).toEqual([null, 'inner'])
+    expect(parsed.inserts[1]?.intoGroupId).toBeNull()
+  })
+
+  it('reads the patch list an include carrier holds under `config.patches`', () => {
+    // `cordis:include` carries other layers rather than plugin data, and its
+    // own patches apply to the rows it pulls in.
+    const parsed = parsePatchDocument('cordis.patch.yml', `
+- insert:
+    - id: included
+      name: cordis:include
+      config:
+        patches:
+          - id: approval
+            disabled: true
+`)
+    expect(parsed.overrides.map(override => override.id)).toEqual(['approval'])
+    expect(parsed.overrides[0]?.path).toBe('[0].insert[0].config.patches[0]')
+  })
+
+  it('reads a group carrier whose config is neither a row list nor a patch list', () => {
+    const parsed = parsePatchDocument('cordis.patch.yml', '- insert:\n    - id: g\n      group: true\n      config: {}\n')
+    expect(parsed.inserts.map(row => row.id)).toEqual(['g'])
   })
 })
 

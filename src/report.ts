@@ -92,6 +92,7 @@ function wrap(text: string, width: number): string[] {
       current = word
     }
   }
+  /* v8 ignore next -- every wrapped string is a finding's detail, and none is empty. */
   if (current !== '') lines.push(current)
   return lines
 }
@@ -145,9 +146,11 @@ function renderFacts(report: Report, paint: (code: string, text: string) => stri
             ? 'yes — the registry marks this package as running one at install time'
             : 'no — the registry does not mark this package as running one'] as [string, string],
         ],
+    /* v8 ignore start -- `mountsAsBundle` is true exactly when the manifest declared a path. */
     ['mounted layer', facts.mountsAsBundle
       ? `yes — dsh.bundle.patch = ${facts.bundlePatchPath ?? '?'} (imported into the harness process at the agent's uid)`
       : 'no — installs as a plain library, and dsh plugin add prints a warning saying so'],
+    /* v8 ignore stop */
     ['browser bundle', facts.shipsClientBundle ? 'yes — dsh.client with an ./client export, executed in the user\'s browser' : 'no'],
     ['rows inserted', facts.insertedRows.length === 0
       ? 'none'
@@ -177,8 +180,10 @@ function renderFacts(report: Report, paint: (code: string, text: string) => stri
  * @returns the rendered text, ending in a newline.
  */
 export function renderHuman(report: Report, color: boolean): string {
+  /* v8 ignore start -- every call site passes a literal key of COLOR. */
   const paint = (code: string, text: string): string =>
     color ? `${COLOR[code as keyof typeof COLOR] ?? ''}${text}${COLOR.reset}` : text
+  /* v8 ignore stop */
   const lines = ['', ...renderFacts(report, paint)]
 
   if (report.findings.length > 0) {

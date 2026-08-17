@@ -86,6 +86,20 @@ describe('the ordering rule', () => {
       .toEqual(['A2', 'A20', 'A16'])
   })
 
+  it('falls back to the evidence location, so two findings alike in every rank still order', () => {
+    const one: Finding = { ...ranked('B', 'medium', 'B13'), evidence: { file: 'lib/a.js', path: '2:1' } }
+    const two: Finding = { ...ranked('B', 'medium', 'B13'), evidence: { file: 'lib/b.js', path: '1:1' } }
+    const three: Finding = { ...ranked('B', 'medium', 'B13'), evidence: { file: 'lib/a.js', path: '1:1' } }
+    const unlocated: Finding = { ...ranked('B', 'medium', 'B13'), evidence: { file: 'lib/a.js' } }
+    const alsoUnlocated: Finding = { ...ranked('B', 'medium', 'B13'), evidence: { file: 'lib/a.js' } }
+    expect([two, one, alsoUnlocated, three, unlocated].sort(compareFindings).map(finding => finding.evidence))
+      .toEqual([
+        { file: 'lib/a.js' }, { file: 'lib/a.js' },
+        { file: 'lib/a.js', path: '1:1' }, { file: 'lib/a.js', path: '2:1' },
+        { file: 'lib/b.js', path: '1:1' },
+      ])
+  })
+
   it('is total, so two runs over one package diff cleanly', () => {
     const findings = [ranked('B', 'medium', 'B13'), ranked('B', 'medium', 'B7')]
     expect(compareFindings(findings[0] as Finding, findings[1] as Finding))

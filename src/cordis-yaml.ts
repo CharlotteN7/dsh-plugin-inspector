@@ -36,6 +36,7 @@ const jsExprType = new yaml.Type('tag:yaml.org,2002:js', {
   kind: 'scalar',
   resolve: data => typeof data === 'string',
   construct: (data: unknown): JsExprNode => {
+    /* v8 ignore next -- js-yaml calls `construct` only for data its `resolve` accepted, which is a string. */
     if (typeof data !== 'string') throw new TypeError('!!js requires a scalar string')
     return { __jsExpr: data }
   },
@@ -128,45 +129,18 @@ export interface PatchDocument {
   readonly aliased: boolean
 }
 
-/** Nodes one patch layer may expand to, and separately be walked through. */
+/**
+ * The two ceilings that make reading a patch layer terminate.
+ *
+ * They apply to {@link expandAliases}, and through it to everything downstream:
+ * the walk runs over the tree the expansion produced, which holds at most
+ * `MAX_WALK_NODES` nodes nested at most `MAX_WALK_DEPTH` deep, so the walk needs
+ * no ceiling of its own.
+ */
 export const MAX_WALK_NODES = 200_000
 
 /** Nesting one patch layer may reach before the reader gives up. */
 export const MAX_WALK_DEPTH = 200
-
-/**
- * The ceilings that make reading a patch layer terminate.
- *
- * The walk runs over an expanded tree — {@link expandAliases} has already
- * replaced every shared reference with its own node — so nothing it descends
- * into can lead back to itself, and the node and depth counters are what bound
- * the work. The same counters also bound a document that is merely enormous
- * rather than aliased.
- */
-interface WalkBudget {
-  nodes: number
-  limit: WalkLimit
-}
-
-/**
- * Charge one node against the budget.
- * @param budget - the shared budget.
- * @param depth - the current nesting depth.
- * @returns true when the walk may descend into this node.
- */
-function admit(budget: WalkBudget, depth: number): boolean {
-  if (budget.limit !== null) return false
-  if (depth > MAX_WALK_DEPTH) {
-    budget.limit = 'depth'
-    return false
-  }
-  budget.nodes += 1
-  if (budget.nodes > MAX_WALK_NODES) {
-    budget.limit = 'nodes'
-    return false
-  }
-  return true
-}
 
 /** What {@link expandAliases} produced, and which ceiling stopped it. */
 interface Expansion {
@@ -289,6 +263,7 @@ export function classifyExpression(expression: string): { class: ExpressionClass
     // the resulting function is discarded without being called.
     new Function(`return (${expression})`)
   } catch (error) {
+    /* v8 ignore next -- the Function constructor rejects a body only with a SyntaxError. */
     return { class: 'unparseable', parseError: error instanceof Error ? error.message : String(error) }
   }
   const source = ts.createSourceFile('expr.ts', `(${expression})`, ts.ScriptTarget.ESNext, false, ts.ScriptKind.TS)
@@ -367,7 +342,6 @@ function isInertCall(node: ts.CallExpression): boolean {
  * @param depth - the current nesting depth.
  */
 function collect(value: unknown, path: string, slot: ExpressionSlot, sink: WalkSink, depth: number): void {
-  if (!admit(sink.budget, depth)) return
   if (isJsExpr(value)) {
     const classified = classifyExpression(value.__jsExpr)
     sink.expressions.push({
@@ -437,7 +411,6 @@ interface WalkSink {
   readonly overrides: OverridePatch[]
   readonly inserts: InsertedRow[]
   readonly expressions: ExpressionSite[]
-  readonly budget: WalkBudget
 }
 
 /**
@@ -450,7 +423,6 @@ interface WalkSink {
  */
 function walkRow(value: unknown, path: string, intoGroupId: string | null, sink: WalkSink, depth: number): void {
   if (!isRecord(value)) return
-  if (!admit(sink.budget, depth)) return
   const carrier = isTreeCarrier(value)
   sink.inserts.push({
     path,
@@ -488,7 +460,6 @@ function walkPatchList(list: readonly unknown[], prefix: string, sink: WalkSink,
   for (const [index, patch] of list.entries()) {
     const path = `${prefix}[${index}]`
     if (!isRecord(patch)) continue
-    if (!admit(sink.budget, depth)) continue
     const id = typeof patch.id === 'string' ? patch.id : null
     if (Array.isArray(patch.insert)) {
       for (const [rowIndex, row] of patch.insert.entries()) {
@@ -522,6 +493,7 @@ export function parsePatchDocument(file: string, text: string): PatchDocument {
   try {
     loaded = yaml.load(text, { schema: patchSchema })
   } catch (error) {
+    /* v8 ignore next -- js-yaml rejects a document only with a YAMLException. */
     const message = error instanceof Error ? error.message : String(error)
     throw new PatchParseError(message, /(?<!!)!js(?![a-zA-Z0-9_-])/.test(text))
   }
@@ -529,19 +501,14 @@ export function parsePatchDocument(file: string, text: string): PatchDocument {
     throw new PatchParseError('a patch layer must be a top-level array of entries', false)
   }
   const expansion = expandAliases(loaded)
-  const sink: WalkSink = {
-    overrides: [],
-    inserts: [],
-    expressions: [],
-    budget: { nodes: 0, limit: null },
-  }
+  const sink: WalkSink = { overrides: [], inserts: [], expressions: [] }
   walkPatchList(expansion.entries, '', sink, 0)
   return {
     file,
     overrides: sink.overrides,
     inserts: sink.inserts,
     expressions: sink.expressions,
-    limit: sink.budget.limit ?? expansion.limit,
+    limit: expansion.limit,
     aliased: expansion.aliased,
   }
 }

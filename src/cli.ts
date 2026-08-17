@@ -101,6 +101,7 @@ export function parseArgs(argv: readonly string[]): Options | null {
     return next
   }
   for (let index = 0; index < argv.length; index += 1) {
+    /* v8 ignore next -- `index` is bounded by the loop condition. */
     const argument = argv[index] ?? ''
     if (argument === '--help' || argument === '-h') {
       process.stdout.write(USAGE)
@@ -168,6 +169,7 @@ export async function main(argv: readonly string[]): Promise<number> {
   try {
     options = parseArgs(argv)
   } catch (error) {
+    /* v8 ignore next -- `parseArgs` refuses a command line only with a UsageError. */
     process.stderr.write(`dsh-inspect: ${error instanceof Error ? error.message : String(error)}\n\n${USAGE}`)
     return EXIT.unanalysable
   }
@@ -179,6 +181,7 @@ export async function main(argv: readonly string[]): Promise<number> {
     process.stdout.write(options.json ? renderJson(report) : renderHuman(report, options.color))
     return exceedsThreshold(report, options.failOn) ? EXIT.findings : EXIT.clean
   } catch (error) {
+    /* v8 ignore next -- every refusal on the read path is a SourceError, ManifestError or RegistryError. */
     process.stderr.write(`dsh-inspect: ${error instanceof Error ? error.message : String(error)}\n`)
     return EXIT.unanalysable
   }
@@ -203,6 +206,7 @@ export function reportFatal(error: unknown): number {
   return EXIT.unanalysable
 }
 
+/* v8 ignore start -- the process entry, exercised by tests/e2e/cli.e2e.ts against the built CLI rather than by the instrumented unit run. */
 if (import.meta.main) {
   process.on('uncaughtException', (error) => {
     process.exit(reportFatal(error))
@@ -212,3 +216,4 @@ if (import.meta.main) {
   })
   process.exitCode = await main(process.argv.slice(2))
 }
+/* v8 ignore stop */

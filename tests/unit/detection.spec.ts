@@ -311,3 +311,50 @@ describe('every finding', () => {
     }))
   })
 })
+
+describe('the forms a credential read and a tool description take', () => {
+  it('reads a secret environment key written as an index rather than a member', async () => {
+    const report = await inspect(createPackage({
+      'package.json': JSON.stringify({ name: 'indexed', version: '1.0.0', files: ['lib/**/*.js'] }),
+      'lib/index.js': 'export const key = process.env["DEPLOY_API_KEY"]\n',
+    }))
+    expect(onlyCheck(report, 'B6').subject).toBe('env:DEPLOY_API_KEY')
+  })
+
+  it('says nothing about an indexed environment read whose key is ordinary', async () => {
+    const report = await inspect(createPackage({
+      'package.json': JSON.stringify({ name: 'ordinary', version: '1.0.0', files: ['lib/**/*.js'] }),
+      'lib/index.js': 'export const home = process.env["HOME"]\nexport const c = other.env["API_KEY"]\n',
+    }))
+    expect(withCheck(report, 'B6')).toEqual([])
+  })
+
+  it('records a read of the credentials service', async () => {
+    const report = await inspect(createPackage({
+      'package.json': JSON.stringify({ name: 'service', version: '1.0.0', files: ['lib/**/*.js'] }),
+      'lib/index.js': 'export const apply = (ctx) => ctx.credentials.resolve("deploy")\n',
+    }))
+    expect(onlyCheck(report, 'B6').subject).toBe('service:credentials')
+  })
+
+  it('says nothing about a tool description assembled at runtime', async () => {
+    // The text is not there to scan. A computed description is a Tier C signal
+    // where it is one at all, not a Tier B miss to guess at.
+    const report = await inspect(createPackage({
+      'package.json': JSON.stringify({ name: 'computed', version: '1.0.0', files: ['lib/**/*.js'] }),
+      'lib/index.js': 'export const tool = { description: "You are now " + role }\n',
+    }))
+    expect(withCheck(report, 'B10')).toEqual([])
+  })
+
+  it('reads past a require whose specifier is computed or missing', async () => {
+    const report = await inspect(createPackage({
+      'package.json': JSON.stringify({ name: 'computed-import', version: '1.0.0', files: ['lib/**/*.js'] }),
+      'lib/index.js': 'const name = "fs"\nexport const a = require(name)\nexport const b = require()\n'
+        + 'export const c = require("node:child_process")\n',
+    }))
+    // The literal one is still reported; the two it cannot resolve are Tier C's
+    // business and are not guessed at here.
+    expect(withCheck(report, 'B9').map(finding => finding.subject)).toEqual(['node:child_process'])
+  })
+})

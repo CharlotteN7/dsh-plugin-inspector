@@ -126,6 +126,7 @@ function coreRowSeverity(id: string): Severity | null {
  */
 function coreRowOrigin(id: string): string {
   const row = CORE_ROWS.get(id)
+  /* v8 ignore next -- only called once `coreRowSeverity` has found the id in the same map. */
   if (row === undefined) return 'a shipped bundle'
   return row.bundles.map(bundle => `@deepseek-ai/dsh-${bundle}`).join(' and ')
 }
@@ -222,16 +223,16 @@ function checkOverriddenRows(input: CheckInput): Finding[] {
       }
       const rewritten = override.overriddenKeys.filter(key => key !== 'disabled')
       if (rewritten.length === 0) continue
-      const isSecurity = SECURITY_ROW_IDS.has(override.id)
+      const provides = SECURITY_ROW_IDS.get(override.id)
       findings.push(tierA({
         checkId: 'A5',
         name: 'core-row-overridden',
         subject: `${override.id}:${rewritten.join(',')}`,
-        severity: isSecurity ? 'high' : 'medium',
+        severity: provides === undefined ? 'medium' : 'high',
         title: `Patch layer rewrites ${rewritten.map(key => `\`${key}\``).join(', ')} on the core row "${override.id}"`,
         detail: `The row is ${coreName}. Patch overrides are shallow whole-value replacements, not merges, so `
           + `overriding \`config\` discards that row's entire shipped configuration rather than adding to it.`
-          + (isSecurity ? ` This row provides ${SECURITY_ROW_IDS.get(override.id) ?? 'a core constraint'}.` : ''),
+          + (provides === undefined ? '' : ` This row provides ${provides}.`),
         evidence: { file: patch.file, path: override.path, snippet: snippet(rewritten.join(', ')) },
       }))
     }
@@ -439,6 +440,7 @@ function checkManifest(input: CheckInput): Finding[] {
 
   const lifecycle = INSTALL_LIFECYCLE_SCRIPTS.filter(name => name in manifest.scripts)
   for (const name of lifecycle) {
+    /* v8 ignore next -- `name` came from filtering the same object's own keys. */
     const command = manifest.scripts[name] ?? ''
     const signals = LIFECYCLE_SIGNALS.filter(signal => signal.pattern.test(command))
     findings.push(tierA({
@@ -582,6 +584,7 @@ function checkModelVisibleText(input: CheckInput): Finding[] {
       + 'in an npm package does not by itself put it in front of the model: it is discovered only when the plugin '
       + 'registers it through ctx.skills, when a patch row redirects a skill root into this package (A15), or when '
       + 'something copies it into the user\'s workspace. The text itself is scored separately by B10.',
+    /* v8 ignore next -- the caller returns early on an empty list. */
     evidence: { file: input.modelVisibleFiles[0] ?? '', snippet: snippet(input.modelVisibleFiles.join(', ')) },
   })]
 }
@@ -632,6 +635,7 @@ function checkInjectionText(input: CheckInput): Finding[] {
   const findings: Finding[] = []
   for (const path of input.modelVisibleFiles) {
     const text = input.source.files.get(path)
+    /* v8 ignore next -- `modelVisibleFiles` is filtered from `source.files`'s own keys, so the lookup always hits. */
     if (text === undefined) continue
     for (const match of scanInjection(text)) {
       const evidence = { file: path, path: lineColumn(text, match.index), snippet: snippet(match.excerpt) }

@@ -288,6 +288,26 @@ describe('inspecting a package fetched from the registry', () => {
     expect(stub.calls[0]).toBe(`${mirror}/fetched-plugin/latest`)
     expect(resolved.tarball).toContain(mirror)
   })
+
+  it('falls back to the spec when the document names neither the package nor the version', async () => {
+    const bytes = Buffer.from('bytes')
+    const stub = registryStub({
+      dist: { tarball: `${REGISTRY}/p/-/p-1.0.0.tgz`, shasum: createHash('sha1').update(bytes).digest('hex') },
+    }, bytes)
+    const resolved = await resolvePackage({ name: 'p', version: null }, { fetch: stub.fetch })
+    expect(resolved.name).toBe('p')
+    expect(resolved.version).toBe('latest')
+    expect(resolved.integrity).toBeNull()
+  })
+
+  it('reports a transport failure that arrived as something other than an Error', async () => {
+    // `fetch` is the process's own, replaceable global. Whatever it rejects
+    // with ends up in a message a user reads, so it cannot be assumed to be an
+    // Error with a `message`.
+    const rejecting = ((): Promise<Response> => Promise.reject('socket closed')) as unknown as typeof globalThis.fetch
+    await expect(resolvePackage({ name: 'p', version: null }, { fetch: rejecting }))
+      .rejects.toThrow(/cannot reach .*: socket closed/)
+  })
 })
 
 describe('the two modes that read local bytes', () => {

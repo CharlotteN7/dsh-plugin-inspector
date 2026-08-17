@@ -178,6 +178,7 @@ export async function resolvePackage(spec: PackageSpec, options: RegistryOptions
   try {
     document = JSON.parse(body.toString('utf8'))
   } catch (error) {
+    /* v8 ignore next -- JSON.parse rejects text only with a SyntaxError. */
     throw new RegistryError(`${url} did not return JSON: ${error instanceof Error ? error.message : String(error)}`)
   }
   const record = asRecord(document)

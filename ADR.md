@@ -205,6 +205,9 @@ worthwhile question — "what am I already running" — and is Phase 3.
 
 ## 10. The coverage gate is a ratchet, not the target
 
+**Superseded — see §20.** The numbers below were aggregate, and an aggregate gate hides the file
+that needs the bar most.
+
 **Decision.** `vitest.config.ts` carries the measured numbers, floored to whole percent
 (93 % statements, 96 % lines, 97 % functions, 84 % branches), rather than the 100 % per-file bar
 this workspace adopts for security code.
@@ -462,3 +465,30 @@ a shipped module at all. That is decidable from the manifest, which is the only 
 Approximating the citation, or keeping the numbers with a softer hedge, would have been worse than
 either removing them or finding the source. A security tool's own text is held to the standard it
 holds packages to.
+
+---
+
+## 20. The coverage gate is per file, at 100 %
+
+**Supersedes §10.** The thresholds are `perFile: true` at 100 % on lines, statements, functions
+and branches. A line that genuinely cannot run carries a `v8 ignore` naming why.
+
+**Why.** §10 was right that a gate failing on every run gets deleted, and the ratchet did move
+monotonically upward — branches went 69 → 84 across releases, every commit message saying "raise
+the ratchet". What it got wrong is *what* was being ratcheted. The numbers were project-wide, so a
+file could sit far below them and pass on the strength of the files above it. `cordis-yaml.ts` was
+at 79.69 % branch coverage under an 84 % gate, and the alias-attribution defect that erased a
+tier-A critical finding (§18) lived in exactly the branches nothing reached.
+
+Per file, that is not expressible: the gate fails on the file, named, with its own number. The
+demonstration is one line — an unreachable branch added to `cordis-yaml.ts` fails the per-file gate
+with `Coverage for branches (99.2%) does not meet global threshold (100%) for src/cordis-yaml.ts`
+and passes the aggregate gate at 99.89 % without a word.
+
+100 % rather than each file's measured floor, because a per-file gate set to the weakest file is
+the aggregate problem again in another shape: it licenses every other file down to that number.
+`dsh-dlp` and `dsh-netguard` hold the same bar, and the workspace conventions adopt it for security
+code. Reaching it took cases for the paths that carry the safety claims — the tar stream ceilings,
+the directory reader's refusals, the publish-set globs, every check in the catalogue and every
+severity arm in it — and about two dozen `v8 ignore` comments on defensive guards that are
+unreachable because their callers already checked, each stating which caller.

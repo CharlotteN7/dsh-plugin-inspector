@@ -136,6 +136,7 @@ export function parseManifest(text: string): PackageManifest {
   try {
     parsed = JSON.parse(text)
   } catch (error) {
+    /* v8 ignore next -- JSON.parse rejects text only with a SyntaxError. */
     throw new ManifestError(`package.json is not valid JSON: ${error instanceof Error ? error.message : String(error)}`)
   }
   if (!isRecord(parsed)) throw new ManifestError('package.json must hold a JSON object')

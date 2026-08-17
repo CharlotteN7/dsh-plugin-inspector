@@ -137,10 +137,12 @@ export function analyze(source: PluginSource, registry?: RegistryProvenance): Re
   const patches: PatchDocument[] = []
   const patchFailures: PatchFailure[] = []
   if (mounted !== null) {
+    /* v8 ignore next -- `mounted` is non-null only when `source.files` holds that key. */
     const text = source.files.get(mounted) ?? ''
     try {
       patches.push(parsePatchDocument(mounted, text))
     } catch (error) {
+      /* v8 ignore next -- `parsePatchDocument` reports every refusal as a PatchParseError. */
       if (!(error instanceof PatchParseError)) throw error
       patchFailures.push({ file: mounted, error })
     }

@@ -6,8 +6,9 @@
  * @module tests/unit/source
  */
 
-import { readdirSync, readFileSync, statSync } from 'node:fs'
+import { chmodSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
+import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { create } from 'tar'
@@ -21,7 +22,7 @@ import { addSymlink, cleanupPackages, createPackage, packExactly, packRawEntries
 let workspace = ''
 
 /** Ceilings small enough that a two-line file trips them. */
-const TINY: ReadLimits = { maxFileBytes: 64, maxTotalBytes: 128, maxEntries: 3 }
+const TINY: ReadLimits = { maxFileBytes: 64, maxTotalBytes: 128, maxEntries: 3, maxStreamBytes: 1024 * 1024 }
 
 /**
  * Pack one committed fixture with npm's own publish semantics: `package.json`
@@ -94,6 +95,19 @@ describe('reading an npm tarball', () => {
     expect(source.skipped.some(entry => entry.reason === 'unreadable')).toBe(true)
   })
 
+  it('refuses every entry name that leaves nothing once the prefix is stripped', async () => {
+    const source = await loadSource(packRawEntries({
+      'package/package.json': '{"name":"odd","version":"1.0.0"}',
+      'toplevel.txt': 'no prefix to strip',
+      'package/.': 'nothing but the current directory',
+      'package//nested//index.js': 'export const a = 1',
+    }))
+    expect([...source.files.keys()].sort()).toEqual(['nested/index.js', 'package.json'])
+    expect(source.skipped.map(entry => entry.path).sort())
+      .toEqual(['package/.', 'toplevel.txt'])
+    expect(source.skipped.every(entry => entry.reason === 'unreadable')).toBe(true)
+  })
+
   it('reports something that is not an archive as an unreadable tarball, not as a package with no manifest', async () => {
     const root = createPackage({ 'package.json': '{"name":"x","version":"1.0.0"}' })
     await expect(loadSource(join(root, 'package.json')))
@@ -155,6 +169,67 @@ describe('the read ceilings', () => {
     expect(source.skipped.map(entry => entry.reason)).toContain('entry-cap')
   })
 
+  it('abandons a tar entry that keeps arriving after it was refused', async () => {
+    // The entry is abandoned on its first chunk and then drained. Every chunk
+    // after that must cost nothing: `resume()` keeps the data events coming,
+    // and buffering them would defeat the ceiling that just fired.
+    const root = createPackage({
+      'package.json': '{"name":"streamed","version":"1.0.0"}',
+      'huge.txt': 'x'.repeat(400_000),
+    })
+    const source = await loadSource(await packExactly(root, ['package.json', 'huge.txt']), TINY)
+    expect(source.skipped).toContainEqual({ path: 'huge.txt', reason: 'size-cap' })
+  })
+
+  it('abandons a tar entry that would pass the total ceiling, without reading it in', async () => {
+    const root = createPackage({
+      'package.json': '{"name":"streamed","version":"1.0.0"}',
+      'a.txt': 'a'.repeat(60),
+      'b.txt': 'b'.repeat(60),
+    })
+    const source = await loadSource(await packExactly(root, ['package.json', 'a.txt', 'b.txt']), TINY)
+    expect(source.skipped.map(entry => entry.reason)).toContain('total-cap')
+  })
+
+  it('stops at the tar entry ceiling as the directory reader does', async () => {
+    const root = createPackage({
+      'package.json': '{"name":"many","version":"1.0.0"}',
+      'z1.txt': 'a', 'z2.txt': 'b', 'z3.txt': 'c', 'z4.txt': 'd',
+    })
+    const source = await loadSource(await packExactly(root, ['package.json', 'z1.txt', 'z2.txt', 'z3.txt', 'z4.txt']), TINY)
+    expect(source.skipped.map(entry => entry.reason)).toContain('entry-cap')
+  })
+
+  it('refuses a tarball that inflates past the stream ceiling instead of inflating it', async () => {
+    // A compression bomb costs nothing to ship and everything to decompress.
+    // The ceiling is on the decompressed stream, so it fires while inflating
+    // rather than after.
+    const root = createPackage({
+      'package.json': '{"name":"bomb","version":"1.0.0"}',
+      'zeros.txt': '0'.repeat(400_000),
+    })
+    const tarball = await packExactly(root, ['package.json', 'zeros.txt'])
+    await expect(loadSource(tarball, { ...TINY, maxStreamBytes: 4096 }))
+      .rejects.toThrow(/decompresses to more than 4096 bytes/)
+  })
+
+  it('reports a failure raised inside the tar parser as an unreadable tarball', async () => {
+    // The parser's callbacks run outside the awaited path, so an error thrown
+    // in one is an uncaught exception and a raw stack trace unless it is
+    // captured and rethrown where the caller is waiting.
+    const root = createPackage({ 'package.json': '{"name":"thrower","version":"1.0.0"}' })
+    const tarball = await packExactly(root, ['package.json'])
+    const spy = vi.spyOn(Buffer, 'concat').mockImplementation(() => {
+      throw 'the parser threw something that is not an Error'
+    })
+    try {
+      await expect(loadSource(tarball))
+        .rejects.toThrow(/cannot read tarball .*: the parser threw something that is not an Error/)
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
   it('reports every refusal through Tier C rather than dropping it silently', async () => {
     const report = await inspect(createPackage({
       'package.json': '{"name":"opaque","version":"1.0.0","files":["blob.bin"]}',
@@ -198,6 +273,67 @@ describe('the directory reader', () => {
       expect(source.skipped).toEqual([])
     },
   )
+
+  it('reads past a symbolic link npm would not publish, without recording it', async () => {
+    // The link is outside the allowlist, so it is not part of the package and
+    // there is nothing to report about it.
+    const root = createPackage({
+      'package.json': '{"name":"linked","version":"1.0.0","files":["lib/**/*.js"]}',
+      'lib/index.js': 'export const a = 1\n',
+    })
+    addSymlink(root, 'notes.md', '/etc/passwd')
+    const source = await loadSource(root)
+    expect(source.skipped).toEqual([])
+    expect([...source.files.keys()]).toEqual(['lib/index.js', 'package.json'])
+  })
+
+  it('reads past a directory entry that is neither a file nor a directory', async () => {
+    const root = createPackage({ 'package.json': '{"name":"socketed","version":"1.0.0"}' })
+    const server = createServer()
+    await new Promise<void>(resolve => server.listen(join(root, 'live.sock'), resolve))
+    try {
+      const source = await loadSource(root)
+      expect([...source.files.keys()]).toEqual(['package.json'])
+      expect(source.skipped).toEqual([])
+    } finally {
+      await new Promise<void>(resolve => server.close(() => resolve()))
+    }
+  })
+
+  it('records a directory it is not allowed to open, rather than reporting the package as small', async () => {
+    const root = createPackage({
+      'package.json': '{"name":"closed","version":"1.0.0"}',
+      'lib/index.js': 'export const a = 1\n',
+    })
+    chmodSync(join(root, 'lib'), 0o000)
+    try {
+      const source = await loadSource(root)
+      expect(source.skipped).toContainEqual({ path: 'lib', reason: 'unreadable' })
+    } finally {
+      chmodSync(join(root, 'lib'), 0o755)
+    }
+  })
+
+  it('records a file it is not allowed to read, rather than dropping it silently', async () => {
+    const root = createPackage({
+      'package.json': '{"name":"closed","version":"1.0.0"}',
+      'lib/index.js': 'export const a = 1\n',
+    })
+    chmodSync(join(root, 'lib/index.js'), 0o000)
+    try {
+      const source = await loadSource(root)
+      expect(source.skipped).toContainEqual({ path: 'lib/index.js', reason: 'unreadable' })
+    } finally {
+      chmodSync(join(root, 'lib/index.js'), 0o644)
+    }
+  })
+
+  it('reads a working tree whose package.json is valid JSON but not an object', async () => {
+    const root = createPackage({ 'package.json': '["not","a","manifest"]', 'lib/index.js': 'export const a = 1\n' })
+    const source = await loadSource(root)
+    expect(source.publishBasis).toBe('ignore-rules')
+    await expect(inspect(root)).rejects.toThrow(/must hold a JSON object/)
+  })
 
   it('records a symbolic link and never follows it', async () => {
     const root = createPackage({ 'package.json': '{"name":"linked","version":"1.0.0"}' })

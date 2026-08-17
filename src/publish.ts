@@ -67,6 +67,7 @@ function matchSegments(pattern: readonly string[], path: readonly string[]): boo
       return false
     }
     if (s === path.length) return false
+    /* v8 ignore next -- both indices are checked against their lengths above. */
     if (!matchSegment(pattern[p] ?? '', path[s] ?? '')) return false
     return step(p + 1, s + 1)
   }
@@ -175,6 +176,7 @@ function ignoreMatches(rule: IgnoreRule, path: string): boolean {
       if (globMatch(rule.pattern, prefix)) return true
       continue
     }
+    /* v8 ignore next -- `end` runs from 1 to `segments.length`, so the index is in range. */
     if (globMatch(rule.pattern, segments[end - 1] ?? '')) return true
   }
   return false

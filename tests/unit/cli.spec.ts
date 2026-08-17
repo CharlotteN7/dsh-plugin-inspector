@@ -54,6 +54,18 @@ function flat(text: string): string {
   return text.replace(/\s+/g, ' ')
 }
 
+describe('the colour switches', () => {
+  it('emits colour when asked for it, whatever the terminal is', async () => {
+    const result = await run(['--color', fixture('disables-approval')])
+    expect(result.out).toContain('\u001B[')
+  })
+
+  it('leaves the text plain when told not to', async () => {
+    const result = await run(['--no-color', fixture('disables-approval')])
+    expect(result.out).not.toContain('\u001B[')
+  })
+})
+
 describe('exit codes', () => {
   it('separates a clean run, a gated run, and a broken analysis', async () => {
     expect((await run([fixture('benign-control'), '--json'])).code).toBe(EXIT.clean)
@@ -88,6 +100,25 @@ describe('exit codes', () => {
     }
     expect(err).toContain('could not be completed')
     expect(err).toContain('Array buffer allocation failed')
+  })
+
+  it('reports a fatal that carries no stack, and one that is not an Error at all', () => {
+    // Nothing constrains what reaches an `uncaughtException` handler.
+    let err = ''
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+      err += String(chunk)
+      return true
+    })
+    try {
+      const stackless: Error = { name: 'Error', message: 'no stack recorded' }
+      Object.setPrototypeOf(stackless, Error.prototype)
+      expect(reportFatal(stackless)).toBe(EXIT.unanalysable)
+      expect(reportFatal('a bare string')).toBe(EXIT.unanalysable)
+    } finally {
+      stderr.mockRestore()
+    }
+    expect(err).toContain('no stack recorded')
+    expect(err).toContain('a bare string')
   })
 
   it('treats a malformed command line as unanalysable, never as clean', async () => {

@@ -37,6 +37,7 @@ export function isSourceFile(path: string): boolean {
  */
 export function isModelVisibleText(path: string): boolean {
   const segments = path.split('/')
+  /* v8 ignore next -- `split` returns at least one element for any string. */
   const base = segments.at(-1) ?? ''
   if (base === 'SKILL.md' || base === 'AGENTS.md' || base === 'CLAUDE.md') return true
   // The filesystem provider scans a skill root at depth 1: `<root>/<name>.md`
@@ -52,6 +53,7 @@ export function isModelVisibleText(path: string): boolean {
  * @returns true for a cordis YAML file.
  */
 export function isCordisConfigFile(path: string): boolean {
+  /* v8 ignore next -- `split` returns at least one element for any string. */
   const base = path.split('/').at(-1) ?? ''
   return /cordis/.test(base) && (base.endsWith('.yml') || base.endsWith('.yaml'))
 }

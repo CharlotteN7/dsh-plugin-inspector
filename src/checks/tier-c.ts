@@ -49,6 +49,7 @@ function checkMinification(input: CheckInput): Finding[] {
   const findings: Finding[] = []
   for (const path of input.sourceFiles) {
     const text = input.source.files.get(path)
+    /* v8 ignore next -- `sourceFiles` is filtered from `source.files`'s own keys, so the lookup always hits. */
     if (text === undefined) continue
     const lines = text.split('\n')
     const longest = lines.reduce((max, line) => Math.max(max, line.length), 0)
@@ -71,6 +72,7 @@ function checkMinification(input: CheckInput): Finding[] {
         + `that long are ${Math.round(longBytes * 100 / Math.max(text.length, 1))}% of the file. Capability `
         + 'detection reads syntax, and it reads minified syntax no better than a person does. Every Tier B '
         + 'negative for this package is unreliable while a file like this is in it.',
+      /* v8 ignore next -- `split` returns at least one element for any string, so the fallback is unreachable. */
       evidence: { file: path, path: '1:1', snippet: snippet(lines[0] ?? '') },
       bypass: 'none — this finding is about the analysis, not about the plugin',
     }))
@@ -83,6 +85,7 @@ function checkDynamicDispatch(input: CheckInput): Finding[] {
   const findings: Finding[] = []
   for (const path of input.sourceFiles) {
     const text = input.source.files.get(path)
+    /* v8 ignore next -- `sourceFiles` is filtered from `source.files`'s own keys, so the lookup always hits. */
     if (text === undefined) continue
     const source = ts.createSourceFile(path, text, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS)
     const report = (node: ts.Node, what: string): void => {
@@ -163,8 +166,10 @@ function isDispatchReceiver(node: ts.Expression): boolean {
  */
 function receiverName(node: ts.Expression): string {
   if (ts.isIdentifier(node)) return node.text
+  /* v8 ignore start -- only called after `isDispatchReceiver`, which accepts these two forms and no other. */
   if (ts.isPropertyAccessExpression(node)) return node.name.text
   return '?'
+  /* v8 ignore stop */
 }
 
 /**
@@ -222,6 +227,7 @@ function checkSourcelessBuild(input: CheckInput): Finding[] {
       detail: 'What runs is the built output, so that is what this tool analysed — but there is nothing in the '
         + 'package to check the build against. Whether the source that produced it matches the repository is not '
         + 'decidable from here.',
+      /* v8 ignore next -- guarded by `built.length > 0` two lines above. */
       evidence: { file: built[0] ?? '', snippet: snippet(built.slice(0, 5).join(', ')) },
       bypass: 'none — this finding is about the analysis, not about the plugin',
     }))
@@ -260,6 +266,7 @@ function checkUnreadableFiles(input: CheckInput): Finding[] {
       ? 'Binary payloads — native addons, WebAssembly, archives — are shipped code this tool cannot read at all. '
         + 'A mounted layer can load a `.node` addon with no restriction whatsoever.'
       : 'These files exceeded a size or count cap and were not read. Nothing is claimed about their contents.',
+    /* v8 ignore next -- a reason only appears in the map once a path was pushed under it. */
     evidence: { file: paths[0] ?? '', snippet: snippet(paths.slice(0, 8).join(', ')) },
     bypass: 'none — this finding is about the analysis, not about the plugin',
   }))
