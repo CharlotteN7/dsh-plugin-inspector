@@ -456,8 +456,8 @@ function checkManifest(input: CheckInput): Finding[] {
         + (signals.length === 0
           ? ''
           : ` The command ${signals.map(signal => signal.meaning).join(', and ')}. A build hook runs something `
-            + 'this package shipped and this one does not, which is the shape 21.2 % of malicious npm packages '
-            + 'take: the whole attack inside `package.json`, with no module to read.'),
+            + 'this package shipped; this one does not. The whole of it is in `package.json`, with no module to '
+            + 'read.'),
       evidence: { file: 'package.json', path: `scripts.${name}`, snippet: snippet(command) },
     }))
   }

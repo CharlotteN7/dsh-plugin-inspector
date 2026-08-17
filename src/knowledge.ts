@@ -332,12 +332,11 @@ export interface LifecycleSignal {
  * Command shapes that make an install lifecycle script the attack rather than
  * the build.
  *
- * The head-to-head measurement on 6,420 malicious and 7,288 benign npm packages
- * (ASE 2026) puts 72.21 % of malicious packages on a lifecycle hook and 21.2 %
- * with the whole attack inside `package.json` scripts — no shipped module at
- * all. That second number is what this table is for: it is the case where the
- * command line itself fetches, decodes, or evaluates, and there is nothing else
- * to read.
+ * The case this table is for is the one where the command line itself fetches,
+ * decodes, or evaluates: the whole attack sits in `package.json` and there is
+ * no shipped module to read. A lifecycle hook alone does not distinguish that
+ * from a build, which is why the hook is a category at `medium` and only the
+ * command raises it.
  *
  * Each pattern is chosen against the measured false-positive side rather than
  * against the idea of a build script. The five packages in the pinned corpus

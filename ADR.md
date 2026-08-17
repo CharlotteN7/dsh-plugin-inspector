@@ -373,8 +373,7 @@ later from a newer harness would silently change what the checks mean; keeping t
 **Decision.** An install lifecycle script stays `medium`. It becomes `high` when the command
 itself fetches a remote resource, pipes into a shell, evaluates inline code, or decodes a payload.
 
-**Why not raise the category.** The independent head-to-head on 6,420 malicious and 7,288 benign
-npm packages (ASE 2026) puts 72.21 % of malicious packages on a lifecycle hook, which is an
+**Why not raise the category.** A lifecycle hook is common in malicious packages, which is an
 argument for `high` until the other side is measured. On the pinned corpus, 5 of 40 legitimate
 published plugins declare one — `tsdown`, `npm run build`, `husky`, `node scripts/prepare.mjs` —
 and two of those five carry no other high or critical finding, so raising the category would move
@@ -383,8 +382,8 @@ mistake 0.2 exists to correct, restated. pnpm ≥ 10 also blocks a dependency's 
 until the package is named in `allowBuilds`, so the category describes something one approval away
 from running.
 
-**Why escalate on the command.** The same measurement puts 21.2 % of malicious packages with the
-entire attack inside `package.json` scripts and no shipped module at all. That case is decidable
+**Why escalate on the command.** A hook whose command line fetches, decodes, or evaluates carries
+the whole attack inside `package.json`, with no shipped module at all. That case is decidable
 from the manifest, which is Tier A's own standard: the string is the thing that runs. The signal
 table is calibrated against the false-positive side rather than against the idea of a build hook —
 running a file the package shipped is what a build hook is and is deliberately not a signal, which
@@ -445,3 +444,21 @@ is bounded, so an aliased layer is exactly the layer whose reading can be silent
 an alias means the reviewer and the loader are not looking at the same document — the row a person
 sees under `inject:` is the row that mounts — which is a fact about how much a reading of the file
 is worth, and that is what Tier C is for.
+
+---
+
+## 19. An unsourced number is removed rather than rounded
+
+**Decision.** The two percentages attributed to "ASE 2026" are gone from `knowledge.ts`, from
+`ADR.md` §16, and from the A1 finding text users read. The qualitative claim stays.
+
+**Why.** The attribution carried no title, authors, venue detail, or DOI, and the figures could not
+be substantiated. One of them was printed to users inside a finding — *"which is the shape 21.2 %
+of malicious npm packages take"* — where a reader has no way to check it and every reason to treat
+it as measured. The distinction the sentence exists to draw survives without it: a build hook runs
+something the package shipped, and a command line that fetches, decodes, or evaluates does not need
+a shipped module at all. That is decidable from the manifest, which is the only claim A1 makes.
+
+Approximating the citation, or keeping the numbers with a softer hedge, would have been worse than
+either removing them or finding the source. A security tool's own text is held to the standard it
+holds packages to.

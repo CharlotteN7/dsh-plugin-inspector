@@ -100,6 +100,10 @@ describe('an install lifecycle script', () => {
     expect(finding.severity).toBe('high')
     expect(finding.detail).toContain('fetches a remote resource at install time')
     expect(finding.detail).toContain('pipes its input straight into a shell')
+    // The distinction A1 draws stands on its own. It carried a percentage of
+    // malicious packages attributed to a paper with no title, authors or DOI,
+    // in text a user reads and cannot check.
+    expect(finding.detail).not.toMatch(/\d+(?:[.,]\d+)?\s*%/)
   })
 
   it('is high when the command evaluates code no published file records', async () => {
