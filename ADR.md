@@ -390,3 +390,22 @@ table is calibrated against the false-positive side rather than against the idea
 running a file the package shipped is what a build hook is and is deliberately not a signal, which
 is why `node scripts/prepare.mjs` stays `medium`. Measured cost on the pinned corpus: all five A1
 findings stay `medium`, and the distribution is unchanged.
+
+---
+
+## 17. The calibration bar moves in one direction
+
+**Decision.** `tests/unit/calibration.spec.ts` asserts only ceilings on the recorded measurement,
+and pins the published `critical` share bar to the literal `0.1`.
+
+**Why.** The case that recorded how many packages a default gate stops carried both
+`withHighOrCritical <= 21` and `withHighOrCritical / scanned > 0.5`. The second is the first
+inverted. At 21 of 40 the margin was one package: calibrating one more package out of the gate
+makes the share exactly 0.50, which is not greater than 0.5, so CI would have failed on precisely
+the improvement this package exists to produce. A ratchet that punishes progress gets deleted in a
+hurry by whoever hits it, and it takes the real half with it.
+
+The bar assertion had the opposite problem. `bar.maxCriticalShareOfCorpus <= 0.1` compares the
+baseline against the constant that wrote it — `MAX_CRITICAL_SHARE` in `scripts/ecosystem-sweep.ts`
+— so it read `0.1 <= 0.1` and could not fail while the constant was the source of both sides.
+Pinning the literal makes moving the published bar in either direction a change a reviewer sees.

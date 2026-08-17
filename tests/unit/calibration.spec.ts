@@ -76,7 +76,11 @@ describe('the recorded ecosystem measurement', () => {
   })
 
   it('holds every check under the bar for how often a `critical` may fire', () => {
-    expect(baseline.bar.maxCriticalShareOfCorpus).toBeLessThanOrEqual(0.1)
+    // The literal, not `MAX_CRITICAL_SHARE`: comparing the baseline against the
+    // constant that wrote it is `0.1 <= 0.1` for every value the constant could
+    // ever hold, so it asserts nothing. Ten percent is the published bar, and
+    // moving it has to break this case.
+    expect(baseline.bar.maxCriticalShareOfCorpus).toBe(0.1)
     const over = Object.entries(baseline.checks)
       .filter(([, stats]) => stats.worst.critical / baseline.scanned > baseline.bar.maxCriticalShareOfCorpus)
       .map(([check, stats]) => `${check} on ${Math.round(stats.worst.critical * 100 / baseline.scanned)}%`)
@@ -93,7 +97,11 @@ describe('the recorded ecosystem measurement', () => {
   it('records how many packages a default gate would still stop', () => {
     // Published as measured, not as hoped: this is still a majority, and the
     // README says so rather than quoting the critical number alone.
+    //
+    // One assertion, in one direction. The floor this case used to also carry —
+    // `> 0.5` — failed on the improvement the package exists to produce:
+    // calibrating one more package out of the gate makes the share exactly
+    // 0.50, which is not greater than 0.5, and CI would have failed on it.
     expect(baseline.withHighOrCritical).toBeLessThanOrEqual(21)
-    expect(baseline.withHighOrCritical / baseline.scanned).toBeGreaterThan(0.5)
   })
 })
