@@ -176,10 +176,28 @@ describe('reading a target that is not a package', () => {
 })
 
 describe('the directory reader', () => {
-  it('skips node_modules so a vendored dependency is not mistaken for the package', async () => {
-    const source = await loadSource(fixture('benign-control'))
-    expect([...source.files.keys()].some(path => path.startsWith('node_modules/'))).toBe(false)
-  })
+  // One entry per name in `SKIPPED_DIRECTORIES`. A vendored dependency, a
+  // packed git object and a coverage report are not this package's code, and a
+  // reader that walks into `node_modules/` reports the findings of every
+  // dependency as though the package had written them.
+  it.each(['node_modules', '.git', '.pnpm-store', '.yarn', 'coverage', '.nyc_output'])(
+    'never descends into %s, so nothing under it is read or counted', async directory => {
+      const root = createPackage({
+        'package.json': '{"name":"vendored","version":"1.0.0","files":["lib/**/*.js"]}',
+        'lib/index.js': 'export const a = 1\n',
+        [`${directory}/dep/package.json`]: '{"name":"dep","version":"1.0.0"}',
+        [`${directory}/dep/index.js`]: 'export const b = 2\n',
+      })
+      const source = await loadSource(root)
+      expect([...source.files.keys()].some(path => path.startsWith(`${directory}/`))).toBe(false)
+      expect([...source.files.keys()]).toEqual(['lib/index.js', 'package.json'])
+      // npm would not publish these either, so "not read" and "not published"
+      // are two different statements. This one is that the walk never went in:
+      // a descended-then-rejected file counts as unpublished.
+      expect(source.unpublishedFiles).toBe(0)
+      expect(source.skipped).toEqual([])
+    },
+  )
 
   it('records a symbolic link and never follows it', async () => {
     const root = createPackage({ 'package.json': '{"name":"linked","version":"1.0.0"}' })

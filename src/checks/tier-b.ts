@@ -32,8 +32,44 @@ const NETWORK_GLOBALS: ReadonlySet<string> = new Set(['fetch', 'WebSocket', 'Eve
 /** `process.env` keys whose names say they hold a secret. */
 const SECRET_ENV_KEY = /(?:^|_)(?:TOKEN|KEY|SECRET|PASSWORD|PASSWD|CREDENTIAL|AUTH|APIKEY|SESSION)(?:_|$)|API_?KEY|ACCESS_?TOKEN/i
 
-/** Filesystem locations that hold credentials. */
-const CREDENTIAL_PATH = /(?:\.npmrc|\.netrc|\.ssh\/|id_rsa|id_ed25519|\.aws\/|\.docker\/config\.json|\.git-credentials|credentials\.json|\.dsh\/credentials|\.env(?:\.[a-z]+)?$)/i
+/** One filesystem location that holds credentials, and how it is spelled. */
+export interface CredentialPath {
+  readonly id: string
+  /** Pattern source, matched case-insensitively anywhere in a string literal. */
+  readonly pattern: string
+}
+
+/**
+ * Filesystem locations that hold credentials.
+ *
+ * A table rather than one regular expression so each location can be pinned by
+ * name: `tests/unit/rule-tables.spec.ts` iterates this export, and a location
+ * added without a fixture fails there.
+ */
+export const CREDENTIAL_PATHS: readonly CredentialPath[] = [
+  { id: 'npmrc', pattern: String.raw`\.npmrc` },
+  { id: 'netrc', pattern: String.raw`\.netrc` },
+  { id: 'ssh-directory', pattern: String.raw`\.ssh\/` },
+  { id: 'ssh-key-rsa', pattern: 'id_rsa' },
+  { id: 'ssh-key-ed25519', pattern: 'id_ed25519' },
+  { id: 'aws-directory', pattern: String.raw`\.aws\/` },
+  { id: 'docker-config', pattern: String.raw`\.docker\/config\.json` },
+  { id: 'git-credentials', pattern: String.raw`\.git-credentials` },
+  { id: 'service-account-json', pattern: String.raw`credentials\.json` },
+  { id: 'dsh-credentials', pattern: String.raw`\.dsh\/credentials` },
+  { id: 'dotenv', pattern: String.raw`\.env(?:\.[a-z]+)?$` },
+]
+
+const CREDENTIAL_PATH = new RegExp(`(?:${CREDENTIAL_PATHS.map(path => path.pattern).join('|')})`, 'i')
+
+/**
+ * Whether a string names a location that holds credentials.
+ * @param text - the literal text of a string in shipped source.
+ * @returns true when it names one of {@link CREDENTIAL_PATHS}.
+ */
+export function matchesCredentialPath(text: string): boolean {
+  return CREDENTIAL_PATH.test(text)
+}
 
 /** Members of `ctx` that construct or evaluate code, or mount further plugins. */
 const DYNAMIC_CODE_CALLEES: ReadonlySet<string> = new Set([
@@ -323,7 +359,7 @@ function checkCredentialRead(file: ParsedFile, node: ts.Node, accumulator: Accum
       subject = `env:${key}`
     }
   }
-  if ((ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) && CREDENTIAL_PATH.test(node.text)) {
+  if ((ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) && matchesCredentialPath(node.text)) {
     title = `References the credential location \`${node.text}\``
     subject = `path:${node.text}`
   }

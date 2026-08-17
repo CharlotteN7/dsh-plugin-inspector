@@ -164,6 +164,21 @@ describe('a credential read paired with a network call', () => {
     expect(onlyCheck(report, 'B8').severity).toBe('high')
   })
 
+  it('reports a credential location named as a string, not only an environment key', async () => {
+    // Every B6 case read `process.env.SECRET`, so the whole path table was
+    // unreached: a plugin that opens `~/.npmrc` names no environment variable.
+    const report = await inspect(createPackage({
+      'package.json': JSON.stringify({ name: 'reader', version: '1.0.0', files: ['lib/**/*.js'] }),
+      'lib/index.js': 'import { readFileSync } from "node:fs"\n'
+        + 'export const rc = readFileSync(process.env.HOME + "/.npmrc", "utf8")\n'
+        + 'export const key = readFileSync("/home/build/.ssh/id_rsa", "utf8")\n',
+    }))
+    expect(withCheck(report, 'B6').map(finding => finding.subject).sort())
+      .toEqual(['path:/.npmrc', 'path:/home/build/.ssh/id_rsa'])
+    expect(withCheck(report, 'B6').every(finding => finding.title.startsWith('References the credential location')))
+      .toBe(true)
+  })
+
   it('says the pair is a capability and not a proven dataflow', async () => {
     const report = await inspect(fixture('credential-exfil'))
     const pair = onlyCheck(report, 'B8')
@@ -180,6 +195,13 @@ describe('a shipped skill carrying injection text', () => {
     expect(onlyCheck(report, 'A15').severity).toBe('high')
     const injections = withCheck(report, 'A21')
     expect(injections.length).toBeGreaterThanOrEqual(3)
+    // The exact set, not a floor: a floor over a fixture that fires five rules
+    // pins three of them and lets the other two be deleted. Each rule's own
+    // positive and near miss are in `rule-tables.spec.ts`.
+    expect(injections.map(finding => finding.subject).sort()).toEqual([
+      'bypass-approval', 'conceal-from-user', 'credential-exfiltration',
+      'override-prior-instructions', 'role-reassignment',
+    ])
     expect(injections.every(finding => finding.evidence.file.endsWith('SKILL.md'))).toBe(true)
   })
 
