@@ -320,6 +320,54 @@ export const INSTALL_LIFECYCLE_SCRIPTS: readonly string[] = [
   'preinstall', 'install', 'postinstall', 'prepare', 'prepublish', 'preprepare', 'postprepare',
 ]
 
+/** One thing a lifecycle command can do that a build never needs to. */
+export interface LifecycleSignal {
+  readonly id: string
+  readonly pattern: RegExp
+  /** What the match means, phrased for a report. */
+  readonly meaning: string
+}
+
+/**
+ * Command shapes that make an install lifecycle script the attack rather than
+ * the build.
+ *
+ * The head-to-head measurement on 6,420 malicious and 7,288 benign npm packages
+ * (ASE 2026) puts 72.21 % of malicious packages on a lifecycle hook and 21.2 %
+ * with the whole attack inside `package.json` scripts — no shipped module at
+ * all. That second number is what this table is for: it is the case where the
+ * command line itself fetches, decodes, or evaluates, and there is nothing else
+ * to read.
+ *
+ * Each pattern is chosen against the measured false-positive side rather than
+ * against the idea of a build script. The five packages in the pinned corpus
+ * that declare a hook run `tsdown`, `npm run build`, `husky`, and
+ * `node scripts/prepare.mjs`; running a shipped file is what a build hook is, so
+ * that shape is deliberately not a signal here.
+ */
+export const LIFECYCLE_SIGNALS: readonly LifecycleSignal[] = [
+  {
+    id: 'fetches-remote',
+    pattern: /\b(?:curl|wget|Invoke-WebRequest|iwr)\b/i,
+    meaning: 'fetches a remote resource at install time, so what runs is not what was published',
+  },
+  {
+    id: 'pipes-to-shell',
+    pattern: /\|\s*(?:sudo\s+)?(?:ba|z|k)?sh\b/,
+    meaning: 'pipes its input straight into a shell',
+  },
+  {
+    id: 'evaluates-inline-code',
+    pattern: /\b(?:node|deno|bun|ruby|perl)\s+(?:-\S+\s+)*--?e(?:val)?\b|\bpython3?\s+(?:-\S+\s+)*-c\b/,
+    meaning: 'evaluates code written on the command line, which no published file records',
+  },
+  {
+    id: 'decodes-payload',
+    pattern: /\bbase64\s+(?:-d|-D|--decode)\b|\batob\s*\(|\bBuffer\.from\([^)]*base64/,
+    meaning: 'decodes an encoded payload, which is how a command hides what it runs',
+  },
+]
+
 /** Entry fields the loader never interpolates: a `!!js` node here is inert data. */
 export const STATIC_ENTRY_FIELDS: readonly string[] = [
   'id', 'name', 'group', 'inject', 'intercept', 'isolate',

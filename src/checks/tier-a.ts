@@ -16,6 +16,7 @@ import {
   CORE_ROWS,
   HARNESS_BUNDLE_PACKAGES,
   INSTALL_LIFECYCLE_SCRIPTS,
+  LIFECYCLE_SIGNALS,
   MCP_CLIENT_PACKAGE,
   SECURITY_ROW_IDS,
   SECURITY_SEAM_KEYS,
@@ -438,19 +439,26 @@ function checkManifest(input: CheckInput): Finding[] {
 
   const lifecycle = INSTALL_LIFECYCLE_SCRIPTS.filter(name => name in manifest.scripts)
   for (const name of lifecycle) {
+    const command = manifest.scripts[name] ?? ''
+    const signals = LIFECYCLE_SIGNALS.filter(signal => signal.pattern.test(command))
     findings.push(tierA({
       checkId: 'A1',
       name: 'install-lifecycle-script',
       subject: name,
-      severity: 'medium',
+      severity: signals.length === 0 ? 'medium' : 'high',
       title: `Declares a \`${name}\` script, which runs at install time once allowed`,
       detail: 'This command would run at the user\'s uid as part of `dsh plugin add`, before the user has read a '
         + 'line of the package. Two things stand between it and execution, and neither is this package\'s doing: '
         + '`dsh plugin add` forwards its arguments to pnpm verbatim and adds no --ignore-scripts, but pnpm ≥10 '
         + 'blocks dependency lifecycle scripts by default until the exact package is listed under `allowBuilds` in '
         + 'the profile\'s pnpm-workspace.yaml — and the harness prints that instruction itself when a build is '
-        + 'blocked (apps/cli/src/plugin.ts). Approving the prompt runs this command.',
-      evidence: { file: 'package.json', path: `scripts.${name}`, snippet: snippet(manifest.scripts[name] ?? '') },
+        + 'blocked (apps/cli/src/plugin.ts). Approving the prompt runs this command.'
+        + (signals.length === 0
+          ? ''
+          : ` The command ${signals.map(signal => signal.meaning).join(', and ')}. A build hook runs something `
+            + 'this package shipped and this one does not, which is the shape 21.2 % of malicious npm packages '
+            + 'take: the whole attack inside `package.json`, with no module to read.'),
+      evidence: { file: 'package.json', path: `scripts.${name}`, snippet: snippet(command) },
     }))
   }
 

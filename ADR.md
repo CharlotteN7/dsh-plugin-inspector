@@ -365,3 +365,28 @@ sandbox, of the same kind as every other table in that module, and they are what
 built against. `WATERFALL_EVENTS` is already part of the published API surface. Re-deriving them
 later from a newer harness would silently change what the checks mean; keeping them dated against
 `HARNESS_REFERENCE` is what §6 is for.
+
+---
+
+## 16. A1 is a category at `medium` and a command line at `high`
+
+**Decision.** An install lifecycle script stays `medium`. It becomes `high` when the command
+itself fetches a remote resource, pipes into a shell, evaluates inline code, or decodes a payload.
+
+**Why not raise the category.** The independent head-to-head on 6,420 malicious and 7,288 benign
+npm packages (ASE 2026) puts 72.21 % of malicious packages on a lifecycle hook, which is an
+argument for `high` until the other side is measured. On the pinned corpus, 5 of 40 legitimate
+published plugins declare one — `tsdown`, `npm run build`, `husky`, `node scripts/prepare.mjs` —
+and two of those five carry no other high or critical finding, so raising the category would move
+the default `--fail-on high` gate from 21 packages to 23 for no new information. That is the
+mistake 0.2 exists to correct, restated. pnpm ≥ 10 also blocks a dependency's lifecycle scripts
+until the package is named in `allowBuilds`, so the category describes something one approval away
+from running.
+
+**Why escalate on the command.** The same measurement puts 21.2 % of malicious packages with the
+entire attack inside `package.json` scripts and no shipped module at all. That case is decidable
+from the manifest, which is Tier A's own standard: the string is the thing that runs. The signal
+table is calibrated against the false-positive side rather than against the idea of a build hook —
+running a file the package shipped is what a build hook is and is deliberately not a signal, which
+is why `node scripts/prepare.mjs` stays `medium`. Measured cost on the pinned corpus: all five A1
+findings stay `medium`, and the distribution is unchanged.

