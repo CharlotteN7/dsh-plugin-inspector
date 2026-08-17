@@ -28,6 +28,8 @@ interface CheckStats {
 
 /** The recorded measurement. */
 interface Baseline {
+  /** The version of this tool that took it, read from its own manifest. */
+  readonly tool: string
   readonly measuredOn: string
   readonly sample: string
   readonly corpusSize: number
@@ -64,6 +66,14 @@ describe('the recorded ecosystem measurement', () => {
     expect(baseline.packages.map(entry => `${entry.name}@${entry.version}`))
       .toEqual(corpus.packages.map(entry => `${entry.name}@${entry.version}`))
     expect(baseline.sample).toMatch(/most-starred/)
+  })
+
+  it('names the build that measured it, so the published number describes this one', () => {
+    // It said `0.2.1` for two releases while the tool shipped 0.3 and 0.4, and
+    // nothing failed: the README quoted a distribution taken by a build nobody
+    // had since run. The obligation this creates is deliberate — a version bump
+    // is not finished until the sweep has been re-run against it.
+    expect(baseline.tool).toBe(load<{ version: string }>('../../package.json').version)
   })
 
   it('keeps `critical` rare enough to mean something', () => {
