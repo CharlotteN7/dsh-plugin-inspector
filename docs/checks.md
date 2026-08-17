@@ -52,6 +52,7 @@ confidence `certain`.
 | A21 | Injection phrasing in shipped instruction markdown | high | **Tier A rather than Tier B, and exempt from the Tier C downgrade.** There is no syntax between a `SKILL.md` and the model: the shipped bytes *are* the prompt, so there is nothing to obfuscate and nothing for a degraded parse to have made unreliable. What is heuristic is the reading of the sentence, not the reading of the file. Tool `description` hits stay Tier B (B10), because code assembles those |
 | A22 | `bin` installs a command on the user's PATH | low | linked into the profile's `node_modules/.bin` at install time. The harness never runs it; the user, a script, or an agent shell tool can |
 | A23 | Inserted row carries `isolate` or `intercept` on a catalogued service | **critical** for a security seam, high otherwise | `vendor/loader/src/config/isolate.ts` re-maps the named service to a fresh symbol realm for the row and every row beneath it, so a descendant injecting that name receives this subtree's implementation instead of the profile's. The same substitution as replacing the service in code, declared in YAML |
+| A24 | Ships a `binding.gyp` — a native build declaration | medium; **high** when a build step's command line fetches, pipes to a shell, evaluates inline code, or decodes a payload | file presence at the package root, plus a text match for an `actions` / `rules` / `postbuilds` key and the same command signals A1 grades a lifecycle script by. A package that ships this file and declares no `install` or `preinstall` script gets `node-gyp rebuild` as its install command by default, and `node-gyp` evaluates the file to decide what that build does. **The declaration is in none of the entry points a reader checks** — not `main`, not `bin`, not `exports`, not `scripts` — which is the whole reason to read it. It reaches execution through the same `allowBuilds` gate as A1 without needing a key in `package.json` at all. The detail also says when the package ships no C or C++ source, because a gyp with nothing to compile is a build declaration whose only effect is that a build runs. **The file is never parsed and never evaluated** — see the note below |
 
 **Reach note for A12, stated because getting this wrong would be dishonest.** Shipping a `SKILL.md`
 inside an npm package does **not** by itself put it in front of the model. There is no
@@ -65,6 +66,25 @@ workspace by something else. `AGENTS.md` / `CLAUDE.md` are a separate subsystem 
 by walking the *workspace*, not the profile. So A12 on its own is `low` and its text says
 "shipped, reaches the model only if registered or redirected"; it escalates to `high` only when
 A15 or a `ctx.skills.register*` call is also present, or when B10's injection heuristics fire.
+
+**Why A24 reads `binding.gyp` as text and never parses it.** GYP is Python-ish, not JSON:
+single-quoted strings, `#` comments, trailing commas, and `conditions` whose first element is a
+Python expression written as a string. `node-gyp` shells out to Python to read it, and there is no
+maintained JavaScript parser for the format — so parsing it here would mean hand-rolling one for an
+attacker-controlled file, and evaluating a condition is the one thing this tool may never do. It
+also would not change the verdict. The decidable half is the whole finding: the file is at the
+package root or it is not, and npm's default install command follows from that alone. What
+separates a build declaration from a build *step* is an `actions` / `rules` / `postbuilds` key and
+the shape of the command under it, and both are literal text either way. So the finding is raised
+on presence — which cannot be evaded while the build still happens — and the *grade* reads the
+command line, exactly as A1 grades a lifecycle script.
+
+**The base rate this check answers to.** Install-time execution is now off by default: pnpm ≥ 10
+and npm ≥ 12 block a dependency's lifecycle scripts until the package is named in `allowBuilds`.
+That is why `install-lifecycle-script` is a `medium` category rather than the headline signal, and
+it is also why the interesting declarations moved out of `scripts` — to `binding.gyp` and to
+editor- and agent-owned files like `.vscode/tasks.json` and `.claude/settings.json`. A24 covers
+the first of those. The others are not checked here and this catalogue does not imply they are.
 
 ### Tier B — AST capability detection, "this plugin CAN do X"
 
@@ -106,7 +126,6 @@ That is the harness's reckoning, not a rule invented here.
 | C5 | The mounted layer hit a walk ceiling — nesting depth or node count | high | **degrades**. Rows past the ceiling were not read |
 | C6 | A `.min.js` artifact | low | **degrades** |
 | C7 | The mounted layer builds rows out of YAML anchors and aliases. `*a` is not a copy — it hands the loader the same node again, so a row anchored under an inert key can be the row that lands in a live one, and one row in the file can be two in the composed profile. The reader expands every alias to its own node before reading the layer, so the reading matches the loader; the finding stands because the document a person reviews is no longer the document that mounts | medium | **degrades** |
-
 ### `!!js` sub-classification (A6)
 
 Every `!!js` node is inventoried with its YAML path and text, then parse-compiled with

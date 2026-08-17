@@ -14,6 +14,7 @@
 import { describe, expect, it } from 'vitest'
 import { CREDENTIAL_PATHS, matchesCredentialPath } from '../../src/checks/tier-b.ts'
 import { INJECTION_RULES, scanInjection } from '../../src/injection.ts'
+import { LIFECYCLE_SIGNALS, matchingLifecycleSignals } from '../../src/knowledge.ts'
 
 /** One rule's evidence: text it must match, and a near one it must not. */
 interface Fixture {
@@ -144,5 +145,58 @@ describe('the credential-location table', () => {
     expect(fixture, `no fixture for ${id}`).toBeDefined()
 
     expect(matchesCredentialPath(fixture?.miss ?? '')).toBe(false)
+  })
+})
+
+/**
+ * One fixture per lifecycle signal.
+ *
+ * Every near miss is the ordinary build command the signal has to leave alone,
+ * because that is the side the table is calibrated against: running a file the
+ * package shipped is what a build step is, and a rule that reads it as an
+ * attack moves the default gate for no new information. The table now grades
+ * two checks — a `package.json` lifecycle command and a `binding.gyp` build
+ * step — so a rule loosened here loosens both.
+ */
+const LIFECYCLE_FIXTURES: Readonly<Record<string, Fixture>> = {
+  'fetches-remote': {
+    match: 'curl -fsSL https://packages.example.invalid/setup -o setup',
+    miss: 'node ./scripts/download-assets.mjs',
+  },
+  'pipes-to-shell': {
+    match: 'cat ./setup | sh',
+    miss: 'cat ./setup | tee setup.log',
+  },
+  'evaluates-inline-code': {
+    match: 'node -e "require(\'./build\')"',
+    miss: 'node ./scripts/prepare.mjs',
+  },
+  'decodes-payload': {
+    match: 'base64 --decode payload.b64 > payload',
+    miss: 'base64 payload > payload.b64',
+  },
+}
+
+describe('the lifecycle-signal table', () => {
+  it('carries a fixture for every signal, and no fixture for one that is gone', () => {
+    expect(Object.keys(LIFECYCLE_FIXTURES).sort()).toEqual(LIFECYCLE_SIGNALS.map(signal => signal.id).sort())
+  })
+
+  it.each(LIFECYCLE_SIGNALS.map(signal => signal.id))('%s fires on its own command, alone', id => {
+    const fixture = LIFECYCLE_FIXTURES[id]
+    expect(fixture, `no fixture for ${id}`).toBeDefined()
+
+    expect(matchingLifecycleSignals(fixture?.match ?? '').map(signal => signal.id)).toEqual([id])
+  })
+
+  it.each(LIFECYCLE_SIGNALS.map(signal => signal.id))('%s abstains on the ordinary build beside it', id => {
+    const fixture = LIFECYCLE_FIXTURES[id]
+    expect(fixture, `no fixture for ${id}`).toBeDefined()
+
+    expect(matchingLifecycleSignals(fixture?.miss ?? '')).toEqual([])
+  })
+
+  it.each(LIFECYCLE_SIGNALS.map(signal => signal.id))('%s says what a match would mean', id => {
+    expect(LIFECYCLE_SIGNALS.find(signal => signal.id === id)?.meaning).toMatch(/\S/)
   })
 })

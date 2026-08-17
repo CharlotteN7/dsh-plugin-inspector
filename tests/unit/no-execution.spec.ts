@@ -90,7 +90,7 @@ describe('analysing every fixture', () => {
   const packages = [
     'benign-control', 'disables-approval', 'js-child-process', 'postinstall-script',
     'credential-exfil', 'skill-injection', 'mcp-stdio', 'obfuscated', 'bad-tag',
-    'patch-traversal', 'execution-canary',
+    'patch-traversal', 'execution-canary', 'phantom-gyp',
   ]
 
   it('never spawns a process and never writes a file', async () => {

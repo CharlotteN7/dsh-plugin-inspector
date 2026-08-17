@@ -12,7 +12,7 @@
 import { afterAll, describe, expect, it } from 'vitest'
 import { analyze, inspect } from '../../src/inspect.ts'
 import { loadSource } from '../../src/source.ts'
-import { cleanupPackages, createPackage } from './package-fixture.ts'
+import { addSymlink, cleanupPackages, createPackage } from './package-fixture.ts'
 import { onlyCheck, withCheck } from './fixtures.ts'
 
 afterAll(cleanupPackages)
@@ -526,6 +526,77 @@ describe('the layers and manifests that cannot be read as written', () => {
       optionalDependencies: { 'some-dep': 'github:someone/some-dep' },
     }))
     expect(withCheck(report, 'A11').map(finding => finding.subject)).toContain('optionalDependencies.some-dep')
+  })
+})
+
+/**
+ * Build a package around a `binding.gyp`.
+ * @param gyp - the gyp file's text.
+ * @param files - extra package files, e.g. the sources the gyp names.
+ * @returns the package root.
+ */
+function native(gyp: string, files: Readonly<Record<string, string>> = {}): string {
+  return createPackage({
+    'package.json': JSON.stringify({ name: 'addon', version: '1.0.0', files: ['binding.gyp', 'src/**'] }),
+    'binding.gyp': gyp,
+    ...files,
+  })
+}
+
+describe('a native build declaration', () => {
+  it('is medium when the gyp describes a compile, and says so', async () => {
+    const report = await inspect(native(
+      "{ 'targets': [ { 'target_name': 'addon', 'sources': [ 'src/addon.cc' ] } ] }\n",
+      { 'src/addon.cc': '// the thing the target compiles\n' },
+    ))
+    const finding = onlyCheck(report, 'A24')
+    expect(finding.severity).toBe('medium')
+    expect(finding.confidence).toBe('certain')
+    expect(finding.detail).toContain('what it describes is a build')
+    expect(finding.detail).not.toContain('ships no C or C++ source')
+  })
+
+  it('stays medium when a build step runs a file the package shipped', async () => {
+    // The same reading A1 gives a lifecycle command: running something the
+    // package published is what a build step is, and grading it would fire on
+    // every native module that generates a header.
+    const report = await inspect(native(
+      "{ 'targets': [ { 'target_name': 'addon', 'sources': [ 'src/addon.cc' ],\n"
+      + "    'actions': [ { 'action_name': 'gen', 'action': [ 'python3', 'tools/gen.py' ] } ] } ] }\n",
+      { 'src/addon.cc': '// generated from tools/gen.py\n' },
+    ))
+    expect(onlyCheck(report, 'A24').severity).toBe('medium')
+  })
+
+  it('is high when a build step decodes its own payload, and locates the command', async () => {
+    const report = await inspect(native(
+      "{ 'targets': [ { 'target_name': 'addon', 'type': 'none',\n"
+      + "    'actions': [ { 'action_name': 'unpack',\n"
+      + "      'action': [ 'sh', '-c', 'base64 --decode blob.b64 > run && ./run' ] } ] } ] }\n",
+    ))
+    const finding = onlyCheck(report, 'A24')
+    expect(finding.severity).toBe('high')
+    expect(finding.detail).toContain('decodes an encoded payload')
+    expect(finding.evidence.snippet).toContain('base64 --decode')
+    expect(finding.evidence.path).toBe('3:32')
+  })
+
+  it('counts a source it declined to read as something the target could build', async () => {
+    // Otherwise the "nothing here to compile" sentence is decided by what the
+    // reader felt like reading, and it says the more alarming thing whenever a
+    // source was skipped.
+    const root = native("{ 'targets': [ { 'target_name': 'addon', 'sources': [ 'src/addon.cc' ] } ] }\n")
+    addSymlink(root, 'src/addon.cc', '/nowhere/addon.cc')
+    const report = await inspect(root)
+    expect(onlyCheck(report, 'A24').detail).not.toContain('ships no C or C++ source')
+  })
+
+  it('says nothing about a package that ships no gyp at all', async () => {
+    const report = await inspect(createPackage({
+      'package.json': JSON.stringify({ name: 'plain', version: '1.0.0', files: ['lib/**'] }),
+      'lib/index.js': 'export function apply() {}\n',
+    }))
+    expect(withCheck(report, 'A24')).toEqual([])
   })
 })
 

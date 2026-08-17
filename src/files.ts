@@ -23,6 +23,25 @@ export function isSourceFile(path: string): boolean {
   return SOURCE_EXTENSIONS.some(extension => path.endsWith(extension))
 }
 
+/** Extensions a `binding.gyp` target compiles. */
+const NATIVE_SOURCE_EXTENSIONS: readonly string[] = [
+  '.c', '.cc', '.cpp', '.cxx', '.h', '.hh', '.hpp', '.hxx', '.m', '.mm', '.s', '.asm',
+]
+
+/**
+ * Whether a path is C-family source a native build would compile.
+ *
+ * Used to answer one question about a package that ships a `binding.gyp`: is
+ * there anything in it to build. A gyp with no compilable source is a build
+ * declaration whose only effect is that a build runs.
+ * @param path - package-relative POSIX path.
+ * @returns true when the file is C-family source or a header.
+ */
+export function isNativeSource(path: string): boolean {
+  const lower = path.toLowerCase()
+  return NATIVE_SOURCE_EXTENSIONS.some(extension => lower.endsWith(extension))
+}
+
 /**
  * Whether a path is markdown that can reach the model verbatim.
  *

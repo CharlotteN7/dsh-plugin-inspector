@@ -286,10 +286,33 @@ describe('an obfuscated package', () => {
   })
 })
 
+describe('a package whose install-time execution is in binding.gyp', () => {
+  it('reports the build declaration although no entry the manifest names reaches it', async () => {
+    const report = await inspect(fixture('phantom-gyp'))
+    const finding = onlyCheck(report, 'A24')
+    expect(finding.tier).toBe('A')
+    expect(finding.evidence.file).toBe('binding.gyp')
+    expect(finding.detail).toContain('node-gyp rebuild')
+    expect(finding.detail).toContain('not `scripts`')
+    // The manifest declares no lifecycle script at all, so nothing in the
+    // catalogue's install-time family would have said a word about this package.
+    expect(withCheck(report, 'A1')).toEqual([])
+  })
+
+  it('is high when the build step fetches and pipes rather than compiling', async () => {
+    const finding = onlyCheck(await inspect(fixture('phantom-gyp')), 'A24')
+    expect(finding.severity).toBe('high')
+    expect(finding.detail).toContain('fetches a remote resource')
+    expect(finding.detail).toContain('pipes its input straight into a shell')
+    expect(finding.detail).toContain('ships no C or C++ source')
+  })
+})
+
 describe('every finding', () => {
   const packages = [
     'benign-control', 'disables-approval', 'js-child-process', 'postinstall-script',
     'credential-exfil', 'skill-injection', 'mcp-stdio', 'obfuscated', 'bad-tag', 'patch-traversal',
+    'phantom-gyp',
   ]
 
   it('carries a bypass for Tier B and Tier C, and none for Tier A', async () => {

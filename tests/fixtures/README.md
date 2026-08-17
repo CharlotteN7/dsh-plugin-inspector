@@ -6,8 +6,13 @@ They exist so the inspector's catalogue can be checked against something that be
 real attack would: a patch layer that switches the approval row off, a `!!js` expression that
 reaches `child_process`, a `postinstall`, a credential read paired with `fetch`, a `SKILL.md`
 written to be read by a model rather than a person, an MCP stdio row, an obfuscated bundle, a `!js`
-tag, and a `dsh.bundle.patch` path that climbs out of its package. `benign-control/` is the
-opposite and must produce zero findings; a tool that fires on it is not worth reading.
+tag, a `dsh.bundle.patch` path that climbs out of its package, and a `binding.gyp` whose build step
+is the payload. `benign-control/` is the opposite and must produce zero findings; a tool that fires
+on it is not worth reading.
+
+`phantom-gyp/` is the one that is invisible to a reader checking the manifest: it declares no
+lifecycle script at all, and its install-time execution point is a file no key of `package.json`
+names.
 
 ## Why none of it can run
 
@@ -24,7 +29,9 @@ Nothing here is installed, built, imported, or mounted by anything in this repos
   its `!!js` expressions, and its module top level all write a sentinel file, and the test asserts
   the sentinel does not exist after a full analysis.
 - The install scripts run harmless commands. The exfiltration fixture posts to
-  `telemetry.example.invalid`, a name reserved by RFC 2606 that cannot resolve.
+  `telemetry.example.invalid`, a name reserved by RFC 2606 that cannot resolve, and so does the
+  `binding.gyp` build step in `phantom-gyp/` — which nothing here installs, so `node-gyp` never
+  reads it. The inspector matches that file as text and does not parse or evaluate it.
 
 ## The one that is a live payload
 

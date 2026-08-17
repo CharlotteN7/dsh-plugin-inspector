@@ -10,19 +10,21 @@
  */
 
 import { isJsExpr, type ExpressionClass, type ExpressionSite } from '../cordis-yaml.ts'
-import { boundedJson, lineColumn, normalizePackagePath, snippet } from '../files.ts'
+import { boundedJson, isNativeSource, lineColumn, normalizePackagePath, snippet } from '../files.ts'
 import { scanInjection } from '../injection.ts'
 import {
   CORE_ROWS,
+  GYP_COMMAND_KEYS,
   HARNESS_BUNDLE_PACKAGES,
   INSTALL_LIFECYCLE_SCRIPTS,
-  LIFECYCLE_SIGNALS,
   MCP_CLIENT_PACKAGE,
+  NATIVE_BUILD_FILE,
   SECURITY_ROW_IDS,
   SECURITY_SEAM_KEYS,
   SEAM_KEYS,
   SKILL_FILESYSTEM_ROW,
   SKILL_ROOT_CONFIG_KEYS,
+  matchingLifecycleSignals,
 } from '../knowledge.ts'
 import { declaredPackages } from '../manifest.ts'
 import type { Finding, Severity } from '../model.ts'
@@ -442,7 +444,7 @@ function checkManifest(input: CheckInput): Finding[] {
   for (const name of lifecycle) {
     /* v8 ignore next -- `name` came from filtering the same object's own keys. */
     const command = manifest.scripts[name] ?? ''
-    const signals = LIFECYCLE_SIGNALS.filter(signal => signal.pattern.test(command))
+    const signals = matchingLifecycleSignals(command)
     findings.push(tierA({
       checkId: 'A1',
       name: 'install-lifecycle-script',
@@ -571,6 +573,89 @@ function checkManifest(input: CheckInput): Finding[] {
   return findings
 }
 
+/**
+ * Whether the package ships anything a native build would compile.
+ *
+ * Skipped files count: a `.cc` the reader passed over for its size is still a
+ * source in the tarball, and claiming a package has none because the analyzer
+ * declined to read one would be wrong in the direction that raises a finding.
+ * @param input - the decoded package.
+ * @returns true when C-family source is present.
+ */
+function shipsNativeSource(input: CheckInput): boolean {
+  const paths = [...input.source.files.keys(), ...input.source.skipped.map(entry => entry.path)]
+  return paths.some(isNativeSource)
+}
+
+/**
+ * A24 — a native build declaration, which is an install-time execution point
+ * that appears in no entry the manifest declares.
+ *
+ * Tier A because the decidable half is the whole finding: the file is at the
+ * package root or it is not, and npm's default install command for a package
+ * that ships one and declares no `install` or `preinstall` script is
+ * `node-gyp rebuild`. Nothing has to be inferred about the code to know that a
+ * build runs, which is the same standard A1 and A22 are read at — a field npm
+ * itself must read literally in order to act on it.
+ *
+ * **The file is not parsed and never evaluated.** GYP is Python-ish, not JSON:
+ * single-quoted strings, `#` comments, trailing commas, and `conditions` whose
+ * first element is a Python expression written as a string. There is no
+ * maintained JavaScript parser for it — `node-gyp` shells out to Python — so
+ * parsing it here would mean hand-rolling one for an attacker-controlled file,
+ * and evaluating a condition is the one thing this tool may never do. It also
+ * would not change the verdict: what distinguishes a build declaration from a
+ * build step is the presence of an `actions`, `rules` or `postbuilds` key and
+ * the shape of the command line under it, and both are literal text in the file
+ * either way. The severity is therefore keyed on a key match plus the same
+ * command signals A1 grades a lifecycle script by.
+ * @param input - the decoded package.
+ * @returns the finding, or none when the package ships no `binding.gyp`.
+ */
+function checkNativeBuild(input: CheckInput): Finding[] {
+  const text = input.source.files.get(NATIVE_BUILD_FILE)
+  if (text === undefined) return []
+  const runsCommands = GYP_COMMAND_KEYS.test(text)
+  const signals = runsCommands ? matchingLifecycleSignals(text) : []
+  const empty = shipsNativeSource(input) ? '' : ' The package ships no C or C++ source, so there is nothing here for '
+    + 'a compiler to build and the build step is the only effect the file has.'
+  const first = signals[0]
+  let at = 0
+  if (first !== undefined) {
+    /* v8 ignore next -- `first` is in the list because it matched this same text, so `exec` finds it again. */
+    at = first.pattern.exec(text)?.index ?? 0
+  }
+  return [tierA({
+    checkId: 'A24',
+    name: 'native-build-declaration',
+    subject: NATIVE_BUILD_FILE,
+    severity: signals.length === 0 ? 'medium' : 'high',
+    title: signals.length === 0
+      ? 'Ships `binding.gyp`, which npm turns into an install-time build'
+      : 'Ships a `binding.gyp` whose build steps run commands rather than a compiler',
+    detail: 'A package that ships this file and declares no `install` or `preinstall` script gets `node-gyp rebuild` '
+      + 'as its install command by default, and `node-gyp` evaluates the file to decide what that build does. The '
+      + 'declaration is in none of the entry points a reader checks: not `main`, not `bin`, not `exports`, and not '
+      + '`scripts`. It runs under the same gate as A1 — pnpm and npm block a dependency\'s build until the package is '
+      + 'named in `allowBuilds` — but reaching that gate takes no key in `package.json` at all, which is why an '
+      + 'ecosystem where install hooks are off by default is one where this path is worth reading.'
+      + (signals.length === 0
+        ? ' This file declares no `actions`, `rules` or `postbuilds` step whose command line does anything a compile '
+          + 'does not, so what it describes is a build.'
+        : ` It declares a build step whose command ${signals.map(signal => signal.meaning).join(', and ')}.`)
+      + empty
+      + ' The file was read as text, never parsed and never evaluated — GYP is Python-ish syntax whose conditions are '
+      + 'Python expressions. Reading it that way is enough to decide that a build runs, which is this finding. It is '
+      + 'not enough to decide what the build does, so the grade above reads the command line the way A1 reads a '
+      + 'lifecycle script\'s.',
+    evidence: {
+      file: NATIVE_BUILD_FILE,
+      path: lineColumn(text, at),
+      snippet: snippet(text.slice(at, at + 400)),
+    },
+  })]
+}
+
 /** A12 — shipped markdown that reaches the model when it is discovered. */
 function checkModelVisibleText(input: CheckInput): Finding[] {
   if (input.modelVisibleFiles.length === 0) return []
@@ -675,6 +760,7 @@ function checkInjectionText(input: CheckInput): Finding[] {
 export function runTierA(input: CheckInput): Finding[] {
   const findings = [
     ...checkManifest(input),
+    ...checkNativeBuild(input),
     ...checkDisabledRows(input),
     ...checkOverriddenRows(input),
     ...checkExpressions(input),

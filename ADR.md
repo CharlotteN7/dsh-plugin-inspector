@@ -492,3 +492,50 @@ code. Reaching it took cases for the paths that carry the safety claims — the 
 the directory reader's refusals, the publish-set globs, every check in the catalogue and every
 severity arm in it — and about two dozen `v8 ignore` comments on defensive guards that are
 unreachable because their callers already checked, each stating which caller.
+
+---
+
+## 21. `binding.gyp` is read as text, and the finding is Tier A
+
+**Decision.** A24 fires on the presence of `binding.gyp` at the package root. The file is matched
+as text — never parsed, never evaluated. Severity is `medium` for the presence and `high` when the
+file both declares an `actions` / `rules` / `postbuilds` key and carries a command line matching
+the same `LIFECYCLE_SIGNALS` table A1 grades a lifecycle script by.
+
+**Why Tier A.** The decidable half is the whole finding. npm's default install command for a
+package that ships a `binding.gyp` and declares no `install` or `preinstall` script is
+`node-gyp rebuild`; the file is at the package root or it is not, and nothing has to be inferred
+about any code to know that a build runs. That is the standard A1 and A22 are already read at — a
+field npm itself must read literally in order to act on it — rather than the narrower "the harness
+reads it", which neither of those satisfies either.
+
+**Why it is worth a check at all, given the base rate.** Install-time execution is off by default
+now: pnpm ≥ 10 and npm ≥ 12 block a dependency's lifecycle scripts until the package is named in
+`allowBuilds`. That is why §16 keeps `install-lifecycle-script` a `medium` category rather than the
+headline signal — and it is the same fact that makes this check worth having. A gate on `scripts`
+moves the declaration somewhere that is not `scripts`. `binding.gyp` is one of those places, and
+the reason it is the interesting one is that it appears in **no entry point a reader checks**: not
+`main`, not `bin`, not `exports`, not `scripts`. It still reaches the same `allowBuilds` prompt,
+without needing a key in `package.json` at all. `.vscode/tasks.json` and `.claude/settings.json`
+are the same shape of move and are **not** covered here; the catalogue says so rather than implying
+a family it does not have.
+
+**Why not parse it.** GYP is Python-ish, not JSON: single-quoted strings, `#` comments, trailing
+commas, and `conditions` whose first element is a Python expression written as a string. `node-gyp`
+shells out to Python to read it, and there is no maintained JavaScript parser for the format.
+Hand-rolling one would put new owned parsing in front of an attacker-controlled file, which the
+workspace conventions push against and which is the worst place to take that trade; evaluating a
+condition is the one thing this tool may never do at all. And it would not change the verdict:
+what separates a build *declaration* from a build *step* is a key name and the shape of the command
+under it, and both are literal text in the file either way. So the finding is raised on presence —
+which cannot be evaded while the build still happens, which is what keeps `bypass` `null` — and
+only the grade reads the command line.
+
+**The extra decidable signal, kept out of the severity.** When the package ships no C-family source
+at all, the detail says so: a gyp with nothing to compile is a build declaration whose only effect
+is that a build runs. It does not raise the severity, because a target whose sources are missing
+fails its build and runs nothing, and a `.cc` the reader skipped for its size still counts as a
+source — otherwise the more alarming sentence is decided by what the reader felt like reading.
+
+**Measured cost.** Zero. On the pinned corpus the check fires on none of the 40 packages, and the
+re-recorded baseline differs from the previous one in the `tool` field and nothing else.

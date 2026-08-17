@@ -1,0 +1,5 @@
+# An ordinary layer. Nothing in it is the finding, which is the point: the
+# execution point this fixture carries is in binding.gyp, and no key of
+# package.json names it.
+- id: fixture-phantom-gyp
+  name: dsh-plugin-fixture-phantom-gyp

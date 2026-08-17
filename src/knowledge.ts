@@ -367,6 +367,41 @@ export const LIFECYCLE_SIGNALS: readonly LifecycleSignal[] = [
   },
 ]
 
+/**
+ * Every lifecycle signal a command line matches.
+ *
+ * One entry point rather than the filter written out twice, because the table
+ * now grades two different things — a `package.json` lifecycle command (A1) and
+ * a `binding.gyp` build step (A24) — and a rule added to it has to reach both.
+ * @param command - the command line, or the text that holds one.
+ * @returns the matching signals, in table order.
+ */
+export function matchingLifecycleSignals(command: string): LifecycleSignal[] {
+  return LIFECYCLE_SIGNALS.filter(signal => signal.pattern.test(command))
+}
+
+/**
+ * The file `node-gyp` reads, at the package root and nowhere else.
+ *
+ * npm and pnpm treat its presence as a declaration: a package that ships one
+ * and declares no `install` or `preinstall` script gets `node-gyp rebuild` as
+ * its install command. That default appears in no field of `package.json`.
+ */
+export const NATIVE_BUILD_FILE = 'binding.gyp'
+
+/**
+ * GYP keys that carry a command line rather than a list of sources to compile.
+ *
+ * `actions` and `rules` run a program during the build; `postbuilds` runs one
+ * after it. A target that only lists `sources`, `include_dirs` and `libraries`
+ * compiles code the package shipped and runs nothing else.
+ *
+ * Matched against the whole file, so a block nested inside a `conditions` arm
+ * counts the same as a top-level one — which is the point, because a condition
+ * is where a build step goes to be read past.
+ */
+export const GYP_COMMAND_KEYS = /['"](?:actions?|rules?|postbuilds)['"]\s*:/
+
 /** Entry fields the loader never interpolates: a `!!js` node here is inert data. */
 export const STATIC_ENTRY_FIELDS: readonly string[] = [
   'id', 'name', 'group', 'inject', 'intercept', 'isolate',
