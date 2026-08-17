@@ -149,14 +149,48 @@ describe('a layer built out of YAML aliases', () => {
     expect(parsed.overrides.map(override => override.id)).toEqual(['r0'])
   })
 
-  it('finds the expression an alias graph hides, exactly once', () => {
+  it('finds the expression an alias graph hides, at every path the loader evaluates it from', () => {
+    // `interpolate` maps over the config as a tree, so an anchored expression
+    // reached from four paths is evaluated four times.
     const parsed = parsePatchDocument('cordis.patch.yml', `
 - id: r0
   config:
     a: &a { key: !!js require('child_process') }
     b: [*a, *a, *a]
 `)
-    expect(parsed.expressions.map(site => site.classification)).toEqual(['module-access'])
+    expect(parsed.expressions.map(site => site.classification))
+      .toEqual(['module-access', 'module-access', 'module-access', 'module-access'])
+    expect(parsed.expressions.map(site => site.path)).toEqual([
+      '[0].config.a.key', '[0].config.b[0].key', '[0].config.b[1].key', '[0].config.b[2].key',
+    ])
+  })
+
+  it('reports that the layer used an alias at all, so a negative is not claimed over it', () => {
+    const parsed = parsePatchDocument('cordis.patch.yml', '- id: r0\n  config:\n    a: &a { k: 1 }\n    b: *a\n')
+    expect(parsed.aliased).toBe(true)
+  })
+
+  it('does not report an alias for a layer that has none', () => {
+    const parsed = parsePatchDocument('cordis.patch.yml', '- id: r0\n  config:\n    a: { k: 1 }\n    b: { k: 1 }\n')
+    expect(parsed.aliased).toBe(false)
+  })
+
+  it('reads a row aliased out of an inert slot into a patch slot, which is where the loader reads it', () => {
+    // The anchor sits under `inject:`, which the loader never interpolates and
+    // which is not a patch row. The alias puts the same node in the patch list,
+    // where it disables `approval` for every session in the profile. Attributing
+    // the node to the position it was first seen in loses the second one
+    // entirely, and the layer then reads as though it modifies nothing.
+    const parsed = parsePatchDocument('cordis.patch.yml', `
+- id: theme-row
+  inject: &defaults
+    id: approval
+    disabled: true
+- *defaults
+`)
+    expect(parsed.overrides.map(override => override.id)).toEqual(['theme-row', 'approval'])
+    expect(parsed.overrides[1]?.disabled).toBe(true)
+    expect(parsed.aliased).toBe(true)
   })
 
   it('refuses plainly nested YAML at the dialect, before the walk sees it', () => {

@@ -120,39 +120,41 @@ export interface PatchDocument {
    * means the layer was read in part, which Tier C reports.
    */
   readonly limit: WalkLimit
+  /**
+   * True when the layer reached at least one node twice, which is what a YAML
+   * alias does and what nothing else does. Tier C reports it, because a reader
+   * of the file sees one row where the loader sees two.
+   */
+  readonly aliased: boolean
 }
 
-/** Nodes one patch layer may be walked through before the walk gives up. */
+/** Nodes one patch layer may expand to, and separately be walked through. */
 export const MAX_WALK_NODES = 200_000
 
-/** Nesting one patch layer may reach before the walk gives up. */
+/** Nesting one patch layer may reach before the reader gives up. */
 export const MAX_WALK_DEPTH = 200
 
 /**
- * The ceilings and the identity set that make walking a patch layer terminate.
+ * The ceilings that make reading a patch layer terminate.
  *
- * YAML anchors let a 475-byte file describe a graph with 31 billion *paths* and
- * 100 *nodes*: `*a` is not a copy, it is the same object again. js-yaml returns
- * that graph in milliseconds; walking it as a tree does not return at all. The
- * `WeakSet` is exact rather than heuristic — two nodes are the same node
- * precisely when they are the same object reference, which is what an alias
- * produces and what distinct content never does. The counters are the backstop
- * for a document that is merely enormous rather than aliased.
+ * The walk runs over an expanded tree — {@link expandAliases} has already
+ * replaced every shared reference with its own node — so nothing it descends
+ * into can lead back to itself, and the node and depth counters are what bound
+ * the work. The same counters also bound a document that is merely enormous
+ * rather than aliased.
  */
 interface WalkBudget {
-  readonly visited: WeakSet<object>
   nodes: number
   limit: WalkLimit
 }
 
 /**
- * Charge one node against the budget, and refuse a node already walked.
+ * Charge one node against the budget.
  * @param budget - the shared budget.
- * @param value - the node about to be walked.
  * @param depth - the current nesting depth.
  * @returns true when the walk may descend into this node.
  */
-function admit(budget: WalkBudget, value: unknown, depth: number): boolean {
+function admit(budget: WalkBudget, depth: number): boolean {
   if (budget.limit !== null) return false
   if (depth > MAX_WALK_DEPTH) {
     budget.limit = 'depth'
@@ -163,10 +165,73 @@ function admit(budget: WalkBudget, value: unknown, depth: number): boolean {
     budget.limit = 'nodes'
     return false
   }
-  if (typeof value !== 'object' || value === null) return true
-  if (budget.visited.has(value)) return false
-  budget.visited.add(value)
   return true
+}
+
+/** What {@link expandAliases} produced, and which ceiling stopped it. */
+interface Expansion {
+  /** The entry list with every alias occurrence materialised as its own node. */
+  readonly entries: readonly unknown[]
+  /** True when some node was reached twice, which only an anchor and alias do. */
+  readonly aliased: boolean
+  readonly limit: WalkLimit
+}
+
+/**
+ * Materialise a parsed patch layer's alias graph as a tree, so that every
+ * occurrence of an anchored node is a distinct node at its own path.
+ *
+ * js-yaml resolves `*a` to the *same JavaScript object* as `&a`, not to a copy.
+ * A reader that walks the result as a graph and skips an object it has already
+ * seen therefore attributes an anchored node to whichever position it reached
+ * first and drops every other one — which is how a row anchored in an inert
+ * `inject:` slot and aliased into a real patch slot came to be read as inert
+ * and analysed no further. The loader has no such notion: `interpolate` in
+ * `vendor/loader/src/config/utils.ts` maps over arrays and objects as a tree
+ * and evaluates each occurrence it reaches, and `applyEntryPatches` reads each
+ * element of the patch list on its own. Expanding first makes this module agree
+ * with both.
+ *
+ * The expansion is bounded, which is what keeps an alias bomb from becoming a
+ * hang: a 475-byte file can describe 100 nodes with 31 billion paths through
+ * them, and materialising those paths is exactly the non-terminating walk the
+ * ceilings exist to stop. Past either ceiling the subtree becomes `null` and
+ * the limit is recorded, so a truncated read is reported rather than presented
+ * as a complete one.
+ * @param entries - the entry list js-yaml returned.
+ * @returns the expanded entries, whether an alias was used, and the ceiling hit.
+ */
+function expandAliases(entries: readonly unknown[]): Expansion {
+  const state = { aliased: false, nodes: 1, limit: null as WalkLimit }
+  const seen = new WeakSet<object>([entries])
+  const expand = (value: unknown, depth: number): unknown => {
+    if (typeof value !== 'object' || value === null) return value
+    if (state.limit !== null) return null
+    if (depth > MAX_WALK_DEPTH) {
+      state.limit = 'depth'
+      return null
+    }
+    state.nodes += 1
+    if (state.nodes > MAX_WALK_NODES) {
+      state.limit = 'nodes'
+      return null
+    }
+    if (seen.has(value)) state.aliased = true
+    else seen.add(value)
+    if (Array.isArray(value)) return value.map(item => expand(item, depth + 1))
+    const clone: Record<string, unknown> = {}
+    for (const [key, child] of Object.entries(value)) {
+      // Assignment would invoke the `__proto__` setter, and js-yaml keeps a
+      // `__proto__` key from the document as an own property precisely so that
+      // it stays data. Defining the property keeps it data here too.
+      Object.defineProperty(clone, key, {
+        value: expand(child, depth + 1), enumerable: true, writable: true, configurable: true,
+      })
+    }
+    return clone
+  }
+  const expanded = entries.map(entry => expand(entry, 1))
+  return { entries: expanded, aliased: state.aliased, limit: state.limit }
 }
 
 /** Thrown when the patch file cannot be parsed as an entry list. */
@@ -302,7 +367,7 @@ function isInertCall(node: ts.CallExpression): boolean {
  * @param depth - the current nesting depth.
  */
 function collect(value: unknown, path: string, slot: ExpressionSlot, sink: WalkSink, depth: number): void {
-  if (!admit(sink.budget, value, depth)) return
+  if (!admit(sink.budget, depth)) return
   if (isJsExpr(value)) {
     const classified = classifyExpression(value.__jsExpr)
     sink.expressions.push({
@@ -385,7 +450,7 @@ interface WalkSink {
  */
 function walkRow(value: unknown, path: string, intoGroupId: string | null, sink: WalkSink, depth: number): void {
   if (!isRecord(value)) return
-  if (!admit(sink.budget, value, depth)) return
+  if (!admit(sink.budget, depth)) return
   const carrier = isTreeCarrier(value)
   sink.inserts.push({
     path,
@@ -423,7 +488,7 @@ function walkPatchList(list: readonly unknown[], prefix: string, sink: WalkSink,
   for (const [index, patch] of list.entries()) {
     const path = `${prefix}[${index}]`
     if (!isRecord(patch)) continue
-    if (!admit(sink.budget, patch, depth)) continue
+    if (!admit(sink.budget, depth)) continue
     const id = typeof patch.id === 'string' ? patch.id : null
     if (Array.isArray(patch.insert)) {
       for (const [rowIndex, row] of patch.insert.entries()) {
@@ -453,28 +518,30 @@ function walkPatchList(list: readonly unknown[], prefix: string, sink: WalkSink,
  * @throws PatchParseError when the text is not a loadable entry list.
  */
 export function parsePatchDocument(file: string, text: string): PatchDocument {
-  let document: unknown
+  let loaded: unknown
   try {
-    document = yaml.load(text, { schema: patchSchema })
+    loaded = yaml.load(text, { schema: patchSchema })
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     throw new PatchParseError(message, /(?<!!)!js(?![a-zA-Z0-9_-])/.test(text))
   }
-  if (!Array.isArray(document)) {
+  if (!Array.isArray(loaded)) {
     throw new PatchParseError('a patch layer must be a top-level array of entries', false)
   }
+  const expansion = expandAliases(loaded)
   const sink: WalkSink = {
     overrides: [],
     inserts: [],
     expressions: [],
-    budget: { visited: new WeakSet(), nodes: 0, limit: null },
+    budget: { nodes: 0, limit: null },
   }
-  walkPatchList(document, '', sink, 0)
+  walkPatchList(expansion.entries, '', sink, 0)
   return {
     file,
     overrides: sink.overrides,
     inserts: sink.inserts,
     expressions: sink.expressions,
-    limit: sink.budget.limit,
+    limit: sink.budget.limit ?? expansion.limit,
+    aliased: expansion.aliased,
   }
 }

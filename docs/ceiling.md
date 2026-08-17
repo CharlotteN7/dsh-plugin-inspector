@@ -41,7 +41,14 @@ would have burned the idea.
    cannot — that needs value tracking this tool does not do. Any telemetry library or
    authenticated API client trips `B8` legitimately. It fires on 18 % of published plugins, which
    is why it is `high` and not `critical`.
-7. **Injection phrasing that is not spelled in ASCII.** The injection heuristics are Latin-alphabet
+7. **What a YAML alias makes the file mean.** An anchored node is one node, and every `*alias` to
+   it is that same node again in a second position. The reader expands each occurrence to its own
+   node so the layer is analysed the way the loader composes it, but the file a reviewer reads and
+   the layer that mounts are then two different documents, and the expansion is bounded — past the
+   node or nesting ceiling the rest is unread. Any layer using an anchor raises `C7`, which
+   degrades the analysis; a clean report over an aliased layer is not a claim that the layer is
+   clean.
+8. **Injection phrasing that is not spelled in ASCII.** The injection heuristics are Latin-alphabet
    regexes. Substituting Cyrillic homoglyphs — `о` U+043E for `o`, `е` U+0435 for `e` — defeats
    **every one of the eleven rules**, including the two hidden-character rules, which look for
    invisible characters and not for visible ones that are the wrong letter. Verified against the

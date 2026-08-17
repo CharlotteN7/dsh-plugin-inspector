@@ -409,3 +409,39 @@ The bar assertion had the opposite problem. `bar.maxCriticalShareOfCorpus <= 0.1
 baseline against the constant that wrote it — `MAX_CRITICAL_SHARE` in `scripts/ecosystem-sweep.ts`
 — so it read `0.1 <= 0.1` and could not fail while the constant was the source of both sides.
 Pinning the literal makes moving the published bar in either direction a change a reviewer sees.
+
+---
+
+## 18. A YAML alias is expanded before the layer is read
+
+**Decision.** `parsePatchDocument` expands the loaded document into a tree before the walk: every
+occurrence of an anchored node becomes its own node at its own path, bounded by the same node and
+nesting ceilings the walk uses. Any layer that used an anchor also raises `C7`, which degrades the
+analysis and makes `negativesReliable` false.
+
+**Why.** js-yaml resolves `*a` to the *same JavaScript object* as `&a`. The walk deduplicated by
+object identity — a `WeakSet` charged in `admit` — so a node reached twice was analysed once, at
+whichever position reached it first. A row anchored in the inert `inject:` slot and aliased into
+the patch list was therefore attributed to the inert slot and dropped from the patch list: the
+layer disabled the core `approval` row, and the tool printed `rows modified: theme-row`, no
+findings above `low`, exit 0, and `integrity: complete` / `negativesReliable: true`. A missed
+finding is bad; a missed finding underneath a certificate that the negatives are meaningful is
+what makes the tool worse than not running it.
+
+Identity deduplication was never the right rule, because the loader has no such notion.
+`interpolate` (`vendor/loader/src/config/utils.ts`) maps over arrays and objects as a tree and
+evaluates each `!!js` node it reaches, once per path, and `applyEntryPatches` reads each element of
+the patch list on its own. Expanding first makes this module agree with both, and it is why an
+anchored expression reached from four paths is now four expression sites rather than one.
+
+The alias bomb that motivated the identity set is still bounded, by the ceilings rather than by
+deduplication: the expansion charges every materialised node against `MAX_WALK_NODES` and every
+level against `MAX_WALK_DEPTH`, and past either one the subtree becomes `null` and `C5` reports
+that the layer was read in part. A 475-byte file describing 31 billion paths through 100 nodes
+stops at 200,000 nodes in milliseconds.
+
+`C7` fires even though the expansion is what makes the reading correct. Two reasons. The expansion
+is bounded, so an aliased layer is exactly the layer whose reading can be silently truncated. And
+an alias means the reviewer and the loader are not looking at the same document — the row a person
+sees under `inject:` is the row that mounts — which is a fact about how much a reading of the file
+is worth, and that is what Tier C is for.

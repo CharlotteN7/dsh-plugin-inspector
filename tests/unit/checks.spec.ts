@@ -282,3 +282,43 @@ describe('an assembled name passed to a method the plugin API also has', () => {
     expect(decode.examples.map(example => example.path)).toEqual(['1:18', '2:18'])
   })
 })
+
+describe('a layer whose hostile row reaches the patch list only through a YAML alias', () => {
+  /** The layer written out, with the same row in the inert slot and in the patch list. */
+  const literal = '- id: theme-row\n  inject:\n    id: approval\n    disabled: true\n'
+    + '- id: approval\n  disabled: true\n'
+
+  /** The same layer, with the patch-list row anchored under `inject:` and aliased in. */
+  const aliased = '- id: theme-row\n  inject: &defaults\n    id: approval\n    disabled: true\n'
+    + '- *defaults\n'
+
+  /**
+   * One report's findings, as comparable keys.
+   * @param report - the report.
+   * @returns one key per finding.
+   */
+  const shape = (report: Awaited<ReturnType<typeof inspect>>): string[] =>
+    report.findings.map(finding => `${finding.checkId} ${finding.subject} ${finding.severity} ${finding.confidence}`)
+
+  it('reads the same layer the same way whichever form it is written in', async () => {
+    const plain = await inspect(mounted(literal))
+    const indirect = await inspect(mounted(aliased))
+    expect(shape(plain)).toContain('A2 approval critical certain')
+    expect(shape(indirect).filter(key => !key.startsWith('C7 '))).toEqual(shape(plain))
+    expect(indirect.facts.targetedRows).toEqual(plain.facts.targetedRows)
+  })
+
+  it('refuses to call its own negatives reliable over a layer built out of aliases', async () => {
+    const indirect = await inspect(mounted(aliased))
+    expect(onlyCheck(indirect, 'C7').name).toBe('patch-uses-aliases')
+    expect(indirect.analysis.integrity).toBe('degraded')
+    expect(indirect.analysis.negativesReliable).toBe(false)
+    expect(indirect.analysis.degradedBy).toEqual(['C7'])
+  })
+
+  it('claims a complete reading of the same layer written without an alias', async () => {
+    const plain = await inspect(mounted(literal))
+    expect(withCheck(plain, 'C7')).toEqual([])
+    expect(plain.analysis.integrity).toBe('complete')
+  })
+})

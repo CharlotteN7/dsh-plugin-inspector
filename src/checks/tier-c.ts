@@ -285,6 +285,24 @@ function checkPatchWalkLimit(input: CheckInput): Finding[] {
   }))
 }
 
+/** C7 — a patch layer whose rows are assembled out of YAML anchors and aliases. */
+function checkPatchAliases(input: CheckInput): Finding[] {
+  return input.patches.filter(patch => patch.aliased).map(patch => tierC({
+    checkId: 'C7',
+    name: 'patch-uses-aliases',
+    subject: patch.file,
+    severity: 'medium',
+    title: `\`${patch.file}\` builds rows out of YAML anchors and aliases`,
+    detail: 'An alias is not a copy: `*a` hands the loader the same node again, so one row in the file can be two '
+      + 'rows in the composed profile, and the row a reader sees under an inert key can be the row that lands in a '
+      + 'live one. This tool expands every alias to its own node before reading the layer, which is what makes the '
+      + 'reading match the loader — but the layer a person reviews and the layer that mounts are no longer the same '
+      + 'document, and no Tier B negative about this package is claimed while that is true.',
+    evidence: { file: patch.file },
+    bypass: 'none — this finding is about the analysis, not about the plugin',
+  }))
+}
+
 /**
  * Run every Tier C check.
  * @param input - the decoded package.
@@ -297,5 +315,6 @@ export function runTierC(input: CheckInput): Finding[] {
     ...checkSourcelessBuild(input),
     ...checkUnreadableFiles(input),
     ...checkPatchWalkLimit(input),
+    ...checkPatchAliases(input),
   ]
 }

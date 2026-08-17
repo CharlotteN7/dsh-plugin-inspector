@@ -105,6 +105,7 @@ That is the harness's reckoning, not a rule invented here.
 | C4 | Unreadable payload — `.node`, `.wasm`, binaries, files over the size cap | medium | **degrades** |
 | C5 | The mounted layer hit a walk ceiling — nesting depth or node count | high | **degrades**. Rows past the ceiling were not read |
 | C6 | A `.min.js` artifact | low | **degrades** |
+| C7 | The mounted layer builds rows out of YAML anchors and aliases. `*a` is not a copy — it hands the loader the same node again, so a row anchored under an inert key can be the row that lands in a live one, and one row in the file can be two in the composed profile. The reader expands every alias to its own node before reading the layer, so the reading matches the loader; the finding stands because the document a person reviews is no longer the document that mounts | medium | **degrades** |
 
 ### `!!js` sub-classification (A6)
 
