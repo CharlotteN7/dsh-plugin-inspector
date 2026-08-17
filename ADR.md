@@ -325,3 +325,30 @@ Deriving rather than gating, because a gate is another thing to remember and it 
 the mistake exists. The manifest resolves at `../package.json` from `src/`, from `lib/` after a
 build, and from `package/lib/` inside the published tarball, so one relative path covers every way
 the module is loaded. npm always ships `package.json`, so the read cannot miss.
+
+---
+
+## 15. B2, B3 and B4 are out of the catalogue until they are implemented
+
+**Decision.** The README's Tier B table no longer lists B2 (auto-approving `approval/request`
+listener), B3 (`tools/pre-execute` returning `allow`), or B4 (waterfall listener that never
+references `next`). No id is reused.
+
+**Why.** They were documented with severities and a stated method — "listener body return
+analysis" — and never implemented. For a tool whose product is knowing what a plugin does before
+you install it, a catalogue entry is a claim: a reader who saw B2 at `critical` had reason to
+believe auto-approval detection was covered, and a clean report meant it had been looked for. It
+had not. Removing the rows costs the reader nothing they actually had; leaving them cost trust in
+every other row.
+
+They are worth building. B4 in particular detects the footgun the workspace conventions name as
+the top waterfall hazard — a listener that returns without calling `next()` short-circuits the
+chain including the built-in behavior — and doing it properly needs return-path analysis over
+listener bodies, which is a different piece of work from matching a call expression.
+
+**The ground truth stays.** `WATERFALL_EVENTS`, `DECISION_EVENTS` and `SANDBOX_DENIED_GLOBALS` in
+`src/knowledge.ts` are transcriptions of the harness's `EVENT_API` and `cordis-host-runner`
+sandbox, of the same kind as every other table in that module, and they are what B2/B3/B4 will be
+built against. `WATERFALL_EVENTS` is already part of the published API surface. Re-deriving them
+later from a newer harness would silently change what the checks mean; keeping them dated against
+`HARNESS_REFERENCE` is what §6 is for.

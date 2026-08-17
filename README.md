@@ -277,9 +277,6 @@ readability finding fires.
 | id | Check | Severity | Method |
 |---|---|---|---|
 | B1 | Replaces a core capability seam — `ctx.provide(<seam>, …)` / `ctx.set(<seam>, …)` where `<seam>` is a key from `api-catalog.ts` | **critical** | call expression, literal first argument matched against the seam key set |
-| B2 | Auto-approves — a listener on `approval/request` that returns an approving verdict with no user interaction | **critical** | listener body return analysis |
-| B3 | `tools/pre-execute` listener returning `allow` | high | same |
-| B4 | Waterfall listener that never references `next` | high | The waterfall set is exactly 13 events: `agent/pre-step`, `agent/request`, `agent/request-error`, `approval/request`, `fs/edit-intent`, `fs/write-intent`, `llm/stream`, `session-telemetry/record`, `system-prompt/assemble`, `tools/code-dispatch-log`, `tools/execute`, `tools/post-execute`, `tools/pre-execute`. Per the harness's own rule, returning without calling `next()` short-circuits the chain **including the built-in behavior**, silently disabling the default for everyone downstream. Note there is **no** `fs/read-intent` — the intent family is write and edit only |
 | B5 | System-prompt mutation — `system-prompt/assemble` listener, or `ctx.systemPrompt.{section,context,variable,tools,suppressRuntimeContext}` | high | call matching |
 | B6 | Credential read — `process.env.*(TOKEN\|KEY\|SECRET\|PASSWORD\|CREDENTIAL)*`, `~/.dsh/credentials`, `~/.npmrc`, `~/.aws`, `~/.ssh`, `ctx.credentials.*` | medium alone | identifier + literal matching |
 | B7 | Network egress — `fetch`, `node:http(s).request`, `node:net`, `WebSocket`, `undici` | medium alone | import + call matching |
