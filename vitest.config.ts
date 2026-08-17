@@ -14,7 +14,7 @@ export default defineConfig({
       // uncovered is mostly defensive branches in the manifest and tarball
       // readers, plus the two process-level handlers in `cli.ts` that only run
       // when the module is the entry point.
-      thresholds: { lines: 96, functions: 97, branches: 83, statements: 93 },
+      thresholds: { lines: 96, functions: 97, branches: 84, statements: 93 },
     },
   },
 })

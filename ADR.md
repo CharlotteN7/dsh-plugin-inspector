@@ -205,9 +205,9 @@ worthwhile question — "what am I already running" — and is Phase 3.
 
 ## 10. The coverage gate is a ratchet, not the target
 
-**Decision.** `vitest.config.ts` carries the measured numbers (91 % statements, 95 % lines,
-96 % functions, 81 % branches) rather than the 100 % per-file bar this workspace adopts for
-security code.
+**Decision.** `vitest.config.ts` carries the measured numbers, floored to whole percent
+(93 % statements, 96 % lines, 97 % functions, 84 % branches), rather than the 100 % per-file bar
+this workspace adopts for security code.
 
 **Why.** A gate that fails on every run is not a gate; it is noise that gets removed. Holding the
 measured numbers means a regression fails CI today, and the ratchet moves up as the remaining
