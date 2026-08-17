@@ -306,3 +306,22 @@ that happens rather than saying "verified" and leaving it there. No digest at al
 **Origin pinning.** The tarball URL must sit on the registry's own origin. This does not defend
 against a hostile registry — it publishes both the URL and the hash — but it stops one doctored
 packument on an honest registry from making the tool fetch an arbitrary URL on the user's behalf.
+
+---
+
+## 14. The version in a report is read, not written down
+
+**Decision.** `TOOL_VERSION` is `package.json`'s `version`, read from the manifest one directory
+above the module at import time. There is no second copy.
+
+**Why.** The second copy went stale and stayed stale through two releases: every `--json` report,
+every `--version`, and the recorded ecosystem baseline said `0.1.0` while the published package was
+`0.2.1`. A report that names the wrong build is worse than one that names none — 0.1 and 0.2 are
+different check sets and different severities, so a stored report could not be matched to the tool
+that produced it. Nothing gated the constant; `publish.yml` compares the git tag against
+`package.json` and never looked at `src/`.
+
+Deriving rather than gating, because a gate is another thing to remember and it only fails after
+the mistake exists. The manifest resolves at `../package.json` from `src/`, from `lib/` after a
+build, and from `package/lib/` inside the published tarball, so one relative path covers every way
+the module is loaded. npm always ships `package.json`, so the read cannot miss.

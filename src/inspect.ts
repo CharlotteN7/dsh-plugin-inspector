@@ -10,6 +10,7 @@
  * @module dsh-plugin-inspector/inspect
  */
 
+import { readFileSync } from 'node:fs'
 import {
   EXPRESSION_CLASSES,
   PatchParseError,
@@ -38,8 +39,20 @@ import { runTierA } from './checks/tier-a.ts'
 import { runTierB } from './checks/tier-b.ts'
 import { NON_DEGRADING_CHECKS, runTierC } from './checks/tier-c.ts'
 
-/** This tool's own version, reported in the JSON document. */
-export const TOOL_VERSION = '0.1.0'
+/**
+ * This tool's own version, reported in the JSON document, by `--version`, and
+ * in the recorded ecosystem measurement.
+ *
+ * Read from this package's own `package.json` rather than written down a second
+ * time. A constant is a copy that only a release checklist keeps honest, and it
+ * stopped being honest for two releases: every report claimed `0.1.0` while the
+ * published package was `0.2.1`. The manifest sits one directory above this
+ * module in the source tree, in `lib/` after a build, and in the published
+ * tarball, so the same relative path resolves in all three.
+ */
+export const TOOL_VERSION: string = (
+  JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string }
+).version
 
 /** This tool's package name, reported in the JSON document. */
 export const TOOL_NAME = 'dsh-plugin-inspector'

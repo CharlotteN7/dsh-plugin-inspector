@@ -123,6 +123,22 @@ describe('argument parsing', () => {
   })
 })
 
+describe('the version the tool puts its name to', () => {
+  it('is the version the package publishes, in both places it is printed', async () => {
+    // Held against the manifest, not against a literal. A second copy of the
+    // number is what went stale: `--version` and every JSON report said 0.1.0
+    // through two published releases, so the reports users had in hand named a
+    // build with different checks in it.
+    const declared = (JSON.parse(
+      readFileSync(new URL('../../package.json', import.meta.url), 'utf8'),
+    ) as { version: string }).version
+    const { code, out } = await run(['--version'])
+    expect(code).toBe(EXIT.clean)
+    expect(out.trim()).toBe(declared)
+    expect((await inspect(fixture('benign-control'))).tool.version).toBe(declared)
+  })
+})
+
 describe('--from-npm', () => {
   it('says where the bytes came from and that they were verified before parsing', async () => {
     const bytes = readFileSync(await packExactly(

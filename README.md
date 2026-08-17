@@ -13,15 +13,15 @@ $ dsh-inspect --from-npm some-dsh-plugin@1.4.0
 
 ## Install
 
-Node `^22.19.0 || >=24`. Once a release is published:
+Node `^22.19.0 || >=24`.
 
 ```console
 npm install -g dsh-plugin-inspector
 dsh-inspect --help
 ```
 
-Until then the binary comes from a checkout — and `lib/` is generated, so a fresh clone has no
-`dsh-inspect` until it is built:
+From a checkout instead — `lib/` is generated, so a fresh clone has no `dsh-inspect` until it is
+built:
 
 ```console
 git clone https://github.com/CharlotteN7/dsh-plugin-inspector
@@ -95,8 +95,8 @@ publish a resolvable npm package, each pinned to the version current that day. R
 `tests/ecosystem-baseline.json`.
 
 Both columns come from the same corpus and the same pinned versions, so the difference is this
-tool's doing and not the ecosystem's. "0.1" is the published `dsh-plugin-inspector@0.1.0`; "0.2" is
-this tree, which still reports version `0.1.0` because the release is not published yet.
+tool's doing and not the ecosystem's. "0.1" is `dsh-plugin-inspector@0.1.0`; "0.2" is this tree,
+which reports itself as `0.2.1` because it reads the version out of its own manifest.
 
 | | 0.1 | 0.2 |
 |---|---|---|
