@@ -17,7 +17,7 @@
 
 import ts from 'typescript'
 import { lineColumn, snippet } from '../files.ts'
-import type { Finding } from '../model.ts'
+import { MAX_EXAMPLES, type Evidence, type Finding } from '../model.ts'
 import type { CheckInput } from './input.ts'
 
 /** A line longer than this is not written by hand. */
@@ -44,13 +44,33 @@ function tierC(finding: Omit<Finding, 'tier' | 'confidence' | 'examples' | 'occu
   return { ...finding, tier: 'C', confidence: 'moderate', examples: [finding.evidence], occurrences: 1 }
 }
 
-/** C1 — source that is not written to be read. */
-function checkMinification(input: CheckInput): Finding[] {
-  const findings: Finding[] = []
+/** One shipped source file, parsed once for every check in this tier. */
+interface ParsedFile {
+  readonly path: string
+  readonly text: string
+  readonly node: ts.SourceFile
+}
+
+/**
+ * Parse every shipped source file once.
+ * @param input - the decoded package.
+ * @returns one entry per source file, in `sourceFiles` order.
+ */
+function parseSources(input: CheckInput): ParsedFile[] {
+  const files: ParsedFile[] = []
   for (const path of input.sourceFiles) {
     const text = input.source.files.get(path)
     /* v8 ignore next -- `sourceFiles` is filtered from `source.files`'s own keys, so the lookup always hits. */
     if (text === undefined) continue
+    files.push({ path, text, node: ts.createSourceFile(path, text, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS) })
+  }
+  return files
+}
+
+/** C1 — source that is not written to be read. */
+function checkMinification(files: readonly ParsedFile[]): Finding[] {
+  const findings: Finding[] = []
+  for (const { path, text } of files) {
     const lines = text.split('\n')
     const longest = lines.reduce((max, line) => Math.max(max, line.length), 0)
     const dense = text.length >= MINIFICATION_SIZE_FLOOR && lines.length < 5
@@ -81,13 +101,9 @@ function checkMinification(input: CheckInput): Finding[] {
 }
 
 /** C2 — names the analyzer cannot resolve without running the code. */
-function checkDynamicDispatch(input: CheckInput): Finding[] {
+function checkDynamicDispatch(files: readonly ParsedFile[]): Finding[] {
   const findings: Finding[] = []
-  for (const path of input.sourceFiles) {
-    const text = input.source.files.get(path)
-    /* v8 ignore next -- `sourceFiles` is filtered from `source.files`'s own keys, so the lookup always hits. */
-    if (text === undefined) continue
-    const source = ts.createSourceFile(path, text, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS)
+  for (const { path, text, node: source } of files) {
     const report = (node: ts.Node, what: string): void => {
       findings.push(tierC({
         checkId: 'C2',
@@ -199,17 +215,79 @@ function literalOf(node: ts.Node | undefined): string | null {
 }
 
 /**
+ * C8 — identifiers spelled with Unicode escapes.
+ *
+ * An escaped spelling and a plain one are the same identifier: the escape is
+ * resolved in the scanner, before any binding, so the two are the same program
+ * and only a reader sees a difference. That is the whole technique — the file
+ * says one thing to a person and another to the engine.
+ *
+ * It says the same thing to this tool as to the engine. `ts.createSourceFile`
+ * hands back `node.text === 'fetch'` for the escaped form, so every Tier B
+ * check that matches a name matches the escaped spelling too. That is measured
+ * rather than assumed — `tests/unit/detection.spec.ts` runs escaped spellings
+ * through B6, B7, B9 and B12 — which is why this finding sits with C3 in
+ * {@link NON_DEGRADING_CHECKS} rather than making every Tier B negative
+ * unreliable.
+ * @param files - the parsed source files.
+ * @returns one finding for the package, or none.
+ */
+function checkEscapedIdentifiers(files: readonly ParsedFile[]): Finding[] {
+  const sites: { name: string, evidence: Evidence }[] = []
+  for (const { path, text, node: source } of files) {
+    const visit = (node: ts.Node): void => {
+      if (ts.isIdentifier(node)) {
+        const start = node.getStart(source)
+        const raw = text.slice(start, node.end)
+        // An identifier token holds a backslash only as part of a `\uXXXX` or
+        // `\u{X}` escape; nothing else in the grammar puts one there.
+        if (raw.includes('\\')) {
+          sites.push({ name: node.text, evidence: { file: path, path: lineColumn(text, start), snippet: snippet(raw) } })
+        }
+      }
+      ts.forEachChild(node, visit)
+    }
+    ts.forEachChild(source, visit)
+  }
+  const first = sites[0]
+  if (first === undefined) return []
+  const names = [...new Set(sites.map(site => site.name))].sort()
+  return [{
+    ...tierC({
+      checkId: 'C8',
+      name: 'escaped-identifier',
+      subject: 'escaped-identifier',
+      severity: 'medium',
+      title: 'Writes identifier names as Unicode escapes',
+      detail: `The escapes resolve to ${names.map(name => `\`${name}\``).join(', ')}. JavaScript resolves an `
+        + 'identifier escape in the scanner, so the escaped and the plain spelling are the same program and no '
+        + 'behavior distinguishes them — the difference is only visible to whoever reads the file. Nothing writes a '
+        + 'name this way by accident, and a published package has no build reason to.'
+        + ' This does not weaken the rest of the report: the parser resolves the escape before any check sees the '
+        + 'name, so a `\\u`-escaped `fetch` is still reported as network egress and an escaped `process.env` read is '
+        + 'still reported as a credential read. What the escape defeats is the reading, not the detection.',
+      evidence: first.evidence,
+      bypass: 'concealing the name a way this check is not about — a computed member or a string assembled at '
+        + 'runtime, which is C2',
+    }),
+    examples: sites.slice(0, MAX_EXAMPLES).map(site => site.evidence),
+    occurrences: sites.length,
+  }]
+}
+
+/**
  * Tier C checks that do **not** make a Tier B negative unreliable.
  *
- * Every other check here says the analyzer could not read something. C3 says
- * the opposite: the bytes were read exactly as written and exactly as they will
- * run — what cannot be checked is whether they match the repository that
- * claims to have produced them. That is worth reporting and it is not a reason
- * to distrust the parse, and treating it as one marks every ordinary published
- * tarball `degraded`, because shipping built output and no source is what
- * publishing a package *is*.
+ * Every other check here says the analyzer could not read something. C3 and C8
+ * say the opposite. C3: the bytes were read exactly as written and exactly as
+ * they will run — what cannot be checked is whether they match the repository
+ * that claims to have produced them. Treating that as an unreadable package
+ * marks every ordinary published tarball `degraded`, because shipping built
+ * output and no source is what publishing a package *is*. C8: the escape is
+ * resolved by the parser before any check reads the name, so the analysis of an
+ * escaped identifier is exactly as good as the analysis of a plain one.
  */
-export const NON_DEGRADING_CHECKS: ReadonlySet<string> = new Set(['C3'])
+export const NON_DEGRADING_CHECKS: ReadonlySet<string> = new Set(['C3', 'C8'])
 
 /** C3, C6 — shipped build output with nothing to compare it against. */
 function checkSourcelessBuild(input: CheckInput): Finding[] {
@@ -316,9 +394,11 @@ function checkPatchAliases(input: CheckInput): Finding[] {
  * @returns findings, unordered.
  */
 export function runTierC(input: CheckInput): Finding[] {
+  const files = parseSources(input)
   return [
-    ...checkMinification(input),
-    ...checkDynamicDispatch(input),
+    ...checkMinification(files),
+    ...checkDynamicDispatch(files),
+    ...checkEscapedIdentifiers(files),
     ...checkSourcelessBuild(input),
     ...checkUnreadableFiles(input),
     ...checkPatchWalkLimit(input),

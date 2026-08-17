@@ -539,3 +539,38 @@ source — otherwise the more alarming sentence is decided by what the reader fe
 
 **Measured cost.** Zero. On the pinned corpus the check fires on none of the 40 packages, and the
 re-recorded baseline differs from the previous one in the `tool` field and nothing else.
+
+---
+
+## 22. An escaped identifier is a reporting gap, not a detection gap — measured, not assumed
+
+**Decision.** C8 reports identifiers written with Unicode escapes, at `medium`, and joins C3 in
+`NON_DEGRADING_CHECKS`: it does **not** make a Tier B negative unreliable.
+
+**What was actually checked.** The concern was the stronger one: `NETWORK_GLOBALS`,
+`DYNAMIC_CODE_CALLEES`, `CREDENTIAL_PATHS` and the rest all match *names*, so an escaped identifier
+would defeat every one of them silently. That was established by running it rather than by reading
+the parser's documentation. `ts.createSourceFile` over `\u0066etch(…)` returns an `Identifier` whose
+`.text` is `fetch`, and over `"node:\u0063hild_process"` a `StringLiteral` whose `.text` is
+`node:child_process`: the scanner resolves the escape before any node exists, so there is nothing
+downstream that could be keyed on the escaped spelling. The confirming run was the new fixture
+against the *pre-change* build, which already reported B6, B7, B8, B9 and B12 on it with every name
+escaped.
+
+So the gap was never in detection. It was that the tool said nothing about a file written to be
+misread by a person, and a reader comparing the report to the source would have found the report
+describing names the file does not appear to contain.
+
+**Why it does not degrade.** Every other Tier C check says the analyzer could not read something,
+and that is what makes a Tier B negative worthless. Here the analyzer read exactly what the engine
+will run. Degrading on it would mark the package unreadable on the strength of a property the
+parser had already neutralised — the same error §7 avoids for C3, in a different shape.
+
+**Why it is still a finding.** Nothing spells a name this way by accident and a published package
+has no build reason to, so the file is telling a person something different from what it tells the
+engine. `@kolbo/mcp@1.57.1` (GHSA-pm5r-9rq7-j86p) is the shipped instance. `medium`, because the
+concealment is real and its effect on this analysis is nil.
+
+**One finding per package**, not per site, with the resolved names in the detail and the count in
+`occurrences` — §12 applied: an obfuscator that escapes ninety identifiers warrants the same one
+decision the first of them warranted.

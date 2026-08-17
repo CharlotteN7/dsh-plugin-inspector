@@ -1,0 +1,4 @@
+# An ordinary layer. The concealment in this fixture is in the shipped module,
+# not here.
+- id: fixture-escaped-identifiers
+  name: dsh-plugin-fixture-escaped-identifiers

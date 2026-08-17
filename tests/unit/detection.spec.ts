@@ -308,11 +308,43 @@ describe('a package whose install-time execution is in binding.gyp', () => {
   })
 })
 
+describe('identifiers written as Unicode escapes', () => {
+  it('is a finding of its own, naming what each escape resolves to', async () => {
+    const report = await inspect(fixture('escaped-identifiers'))
+    const finding = onlyCheck(report, 'C8')
+    expect(finding.severity).toBe('medium')
+    expect(finding.occurrences).toBe(4)
+    expect(finding.detail).toContain('`fetch`')
+    expect(finding.detail).toContain('`process`')
+    expect(finding.detail).toContain('`eval`')
+  })
+
+  it('leaves every capability check reading the name the engine resolves', async () => {
+    // The point of the check, and the reason it does not degrade: an escaped
+    // spelling defeats a reader, not this tool. `ts.createSourceFile` resolves
+    // the escape in the scanner, so B6, B7, B9 and B12 match the same names
+    // they match when the file is written plainly.
+    const report = await inspect(fixture('escaped-identifiers'))
+    expect(withCheck(report, 'B7').map(finding => finding.subject)).toContain('fetch')
+    expect(withCheck(report, 'B6').map(finding => finding.subject)).toContain('env:DEEPSEEK_API_KEY')
+    expect(withCheck(report, 'B9').map(finding => finding.subject)).toContain('node:child_process')
+    expect(withCheck(report, 'B12')).toHaveLength(1)
+    expect(withCheck(report, 'B8')).toHaveLength(1)
+  })
+
+  it('does not make the report claim it could not read the package', async () => {
+    const report = await inspect(fixture('escaped-identifiers'))
+    expect(report.analysis.negativesReliable).toBe(true)
+    expect(report.analysis.degradedBy).not.toContain('C8')
+    expect(onlyCheck(report, 'B7').confidence).toBe('high')
+  })
+})
+
 describe('every finding', () => {
   const packages = [
     'benign-control', 'disables-approval', 'js-child-process', 'postinstall-script',
     'credential-exfil', 'skill-injection', 'mcp-stdio', 'obfuscated', 'bad-tag', 'patch-traversal',
-    'phantom-gyp',
+    'phantom-gyp', 'escaped-identifiers',
   ]
 
   it('carries a bypass for Tier B and Tier C, and none for Tier A', async () => {

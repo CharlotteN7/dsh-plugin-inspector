@@ -126,6 +126,21 @@ That is the harness's reckoning, not a rule invented here.
 | C5 | The mounted layer hit a walk ceiling — nesting depth or node count | high | **degrades**. Rows past the ceiling were not read |
 | C6 | A `.min.js` artifact | low | **degrades** |
 | C7 | The mounted layer builds rows out of YAML anchors and aliases. `*a` is not a copy — it hands the loader the same node again, so a row anchored under an inert key can be the row that lands in a live one, and one row in the file can be two in the composed profile. The reader expands every alias to its own node before reading the layer, so the reading matches the loader; the finding stands because the document a person reviews is no longer the document that mounts | medium | **degrades** |
+| C8 | An identifier spelled with Unicode escapes — `\u0066etch` for `fetch`, the technique `@kolbo/mcp@1.57.1` (GHSA-pm5r-9rq7-j86p) shipped. One finding per package, naming every distinct name the escapes resolve to | medium | **does not degrade** — see the note below |
+
+**Why C8 does not degrade, and what it is for.** The escape is resolved in the *scanner*, before
+any binding, so `\u0066etch` and `fetch` are the same program and no behavior distinguishes them.
+That means two different things for the two kinds of reader. A person auditing the file sees
+nothing, and so would any check keyed on the spelling of a name — which is what makes this a
+technique at all. This tool is not in that group: `ts.createSourceFile` hands back
+`node.text === 'fetch'` for the escaped form, so B6, B7, B9 and B12 match escaped spellings exactly
+as they match plain ones. That is measured, not assumed —
+`tests/fixtures/escaped-identifiers/` ships every name escaped and
+`tests/unit/detection.spec.ts` asserts the capability findings that come back. So the escape
+defeats the *reading*, not the detection, and treating it as an unreadable package would be false.
+It is still worth a finding on its own: nothing writes a name this way by accident, and a published
+package has no build reason to.
+
 ### `!!js` sub-classification (A6)
 
 Every `!!js` node is inventoried with its YAML path and text, then parse-compiled with

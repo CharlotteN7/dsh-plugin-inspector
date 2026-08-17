@@ -6,13 +6,15 @@ They exist so the inspector's catalogue can be checked against something that be
 real attack would: a patch layer that switches the approval row off, a `!!js` expression that
 reaches `child_process`, a `postinstall`, a credential read paired with `fetch`, a `SKILL.md`
 written to be read by a model rather than a person, an MCP stdio row, an obfuscated bundle, a `!js`
-tag, a `dsh.bundle.patch` path that climbs out of its package, and a `binding.gyp` whose build step
-is the payload. `benign-control/` is the opposite and must produce zero findings; a tool that fires
-on it is not worth reading.
+tag, a `dsh.bundle.patch` path that climbs out of its package, a `binding.gyp` whose build step is
+the payload, and a module whose every global is spelled with a Unicode escape. `benign-control/` is
+the opposite and must produce zero findings; a tool that fires on it is not worth reading.
 
-`phantom-gyp/` is the one that is invisible to a reader checking the manifest: it declares no
-lifecycle script at all, and its install-time execution point is a file no key of `package.json`
-names.
+`phantom-gyp/` and `escaped-identifiers/` are the two that are invisible to a reader checking the
+manifest. The first declares no lifecycle script at all: its install-time execution point is a file
+no key of `package.json` names. The second is written so that what a person reads and what the
+engine runs are different documents — and it is also the evidence that this tool reads the second
+one, because the capability findings it produces are the same ones the plain spelling produces.
 
 ## Why none of it can run
 
