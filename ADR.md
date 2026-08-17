@@ -172,6 +172,19 @@ quote an attack — including, immediately, this repository's own `README.md`.
 miss a rephrasing and they can fire on a document that legitimately discusses the subject. Every
 B10 finding names which rule matched so the reader can judge it.
 
+**Hidden characters are matched by run length, not by presence.** The rule table carries two
+invisible-character rules and they are keyed differently on purpose. Zero-width and bidirectional
+controls and the U+E0000 tag block fire on a single occurrence: none of them has a use in a skill
+file. Variation selectors do — U+FE0F and U+FE0E select the emoji or text presentation of the
+character before them, and the U+E0100 plane carries the Ideographic Variation Sequences CJK text
+uses — so firing on one selector would fire on every document with an emoji in it. The rule
+therefore keys on a run of four or more. Nothing standardised puts four in a row: a variation
+selector modifies the single character it follows, so the second has nothing to modify. GlassWorm
+encoded executable JavaScript one byte per selector across five waves, 35,800 installs and 300+
+repositories, which makes a real payload an unbroken run of tens to thousands — four is far below
+that and above the doubled selectors an editor round-trip produces. Measured cost on the pinned
+corpus: zero additional findings across 40 published packages.
+
 ---
 
 ## 9. `dsh --dump-config` is the reference, not the mechanism

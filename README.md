@@ -282,7 +282,7 @@ readability finding fires.
 | B7 | Network egress — `fetch`, `node:http(s).request`, `node:net`, `WebSocket`, `undici` | medium alone | import + call matching |
 | B8 | **Exfiltration pair** — B6 ∧ B7 in the same package | high | set intersection. Reported explicitly as *capability, not dataflow*: the tool cannot prove the credential value reaches the socket. `high` rather than critical because it fires on 18 % of published plugins |
 | B9 | Direct `node:child_process` / `node:worker_threads` / `node:vm` | medium alone, high paired with B8's two halves | import specifier. Bypasses `ctx.subprocess` and `ctx.sandbox` entirely. `medium` alone because a bare import fires on half the published ecosystem |
-| B10 | Prompt-injection heuristics on **model-visible text only** — registered tool `description` string literals, and shipped skill/instruction files | high | imperative-override phrasing, role reassignment, exfiltration instructions, hidden-text markers. Run on *exactly* the text that reaches the model, never on ordinary source comments |
+| B10 | Prompt-injection heuristics on **model-visible text only** — registered tool `description` string literals, and shipped skill/instruction files | high | imperative-override phrasing, role reassignment, exfiltration instructions, hidden-text markers — zero-width and bidirectional controls, the tag block, and runs of four or more variation selectors, the encoding GlassWorm shipped executable JavaScript in. Run on *exactly* the text that reaches the model, never on ordinary source comments |
 | B11 | Nested plugin mounting — `ctx.plugin(…)`, loader manipulation | high | call matching. A layer that mounts further layers moves the analysis target |
 | B12 | Dynamic code construction — `eval`, `new Function`, `vm.runInNewContext`, `module._load` | high | call matching |
 | B13 | Filesystem access outside `ctx.fs` — imports `node:fs` or `node:fs/promises` | medium | Reads and writes through the Node API are invisible to `fs/write-intent`, `fs/edit-intent`, `fs/observed`, and the `fs-sandbox` row, so no policy in the profile sees them and nothing appears in the session log |
@@ -375,7 +375,7 @@ would have burned the idea.
    is why it is `high` and not `critical`.
 7. **Injection phrasing that is not spelled in ASCII.** The injection heuristics are Latin-alphabet
    regexes. Substituting Cyrillic homoglyphs — `о` U+043E for `o`, `е` U+0435 for `e` — defeats
-   **every one of the ten rules**, including the zero-width-character rule, which looks for
+   **every one of the eleven rules**, including the two hidden-character rules, which look for
    invisible characters and not for visible ones that are the wrong letter. Verified against the
    rule table, not assumed. Normalisation is not in 0.2; do not read a clean `A21`/`B10` as
    evidence that shipped markdown carries no instructions.

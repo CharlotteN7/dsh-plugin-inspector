@@ -72,6 +72,22 @@ export const INJECTION_RULES: readonly InjectionRule[] = [
     meaning: 'contains zero-width or bidirectional-control characters, which change what a human reader sees but not what the model reads',
   },
   {
+    // Keyed on a run of four, not on a single selector. One selector is
+    // ordinary: U+FE0F and U+FE0E pick the emoji or text presentation of the
+    // character before them, and the U+E01xx plane carries the Ideographic
+    // Variation Sequences that CJK text uses, so firing on one would fire on
+    // every document with an emoji in it. Nothing standardised puts four in a
+    // row: a variation selector modifies the single character it follows, so a
+    // second one has nothing to modify. GlassWorm's five waves encoded
+    // executable JavaScript one byte per selector, which makes any real payload
+    // an unbroken run of tens to thousands. Four is far below that and above
+    // the doubled selectors that copy-paste through an editor produces.
+    id: 'variation-selector-payload',
+    pattern: /[\uFE00-\uFE0F\u{E0100}-\u{E01EF}]{4,}/u,
+    meaning: 'contains a run of variation selectors, which occupy no width in any editor, terminal or diff '
+      + 'view and can carry an arbitrary encoded payload one byte per selector',
+  },
+  {
     id: 'hidden-html-instruction',
     pattern: /<!--[^]{0,400}?\b(?:you (?:must|should|are)|instruction|assistant|ignore)\b[^]{0,400}?-->/i,
     meaning: 'hides an instruction inside an HTML comment, invisible in rendered markdown',
