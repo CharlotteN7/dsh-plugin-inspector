@@ -398,7 +398,7 @@ describe('what Tier C says about the file it could not read', () => {
     const skipped = onlyCheck(report, 'C4')
     expect(skipped.severity).toBe('low')
     expect(skipped.title).toContain('size-cap')
-    expect(skipped.detail).toContain('exceeded a size or count cap')
+    expect(skipped.detail).toContain('passed a size or count cap')
   })
 
   it('reports a layer that stopped at the node ceiling, not only at the nesting one', async () => {

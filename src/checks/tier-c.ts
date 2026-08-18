@@ -343,7 +343,9 @@ function checkUnreadableFiles(input: CheckInput): Finding[] {
     detail: reason === 'binary'
       ? 'Binary payloads — native addons, WebAssembly, archives — are shipped code this tool cannot read at all. '
         + 'A mounted layer can load a `.node` addon with no restriction whatsoever.'
-      : 'These files exceeded a size or count cap and were not read. Nothing is claimed about their contents.',
+      : 'These files were not read: each either passed a size or count cap, or is not a regular file the reader '
+        + 'can open — a symbolic link, a FIFO, a socket, or a directory it was refused. The subject names which. '
+        + 'Nothing is claimed about their contents.',
     /* v8 ignore next -- a reason only appears in the map once a path was pushed under it. */
     evidence: { file: paths[0] ?? '', snippet: snippet(paths.slice(0, 8).join(', ')) },
     bypass: 'none — this finding is about the analysis, not about the plugin',
