@@ -48,7 +48,13 @@ export const INJECTION_RULES: readonly InjectionRule[] = [
   },
   {
     id: 'credential-exfiltration',
-    pattern: /\b(?:send|post|upload|transmit|exfiltrate|forward|report)\b[^.\n]{0,60}\b(?:api[_ -]?key|access[_ -]?token|secret|credential|password|\.env|id_rsa|\.npmrc)\b/i,
+    // The dotted filenames carry their own boundary. A `\b` in front of the
+    // whole alternation cannot match at the start of `.env` or `.npmrc`: the
+    // preceding character is a space and the next is a `.`, so neither side of
+    // that position is a word character and the boundary does not exist there.
+    // Under a shared `\b` those two alternatives match nothing, while the
+    // word-initial ones beside them keep working and hide it.
+    pattern: /\b(?:send|post|upload|transmit|exfiltrate|forward|report)\b[^.\n]{0,60}(?:\b(?:api[_ -]?key|access[_ -]?token|secret|credential|password|id_rsa)\b|\.(?:env|npmrc)\b)/i,
     meaning: 'instructs the model to move a credential somewhere',
   },
   {
