@@ -146,8 +146,12 @@ function checkDisabledRows(input: CheckInput): Finding[] {
       // (vendor/loader/src/config/entry.ts). `null`, `0` and `""` therefore
       // leave the row running, and reporting them as a disabled row would be
       // confidently wrong about the one thing Tier A claims to be certain of.
-      // An expression node is an object, so it stays truthy here and is judged
-      // by what it can evaluate to rather than by its own shape.
+      // A `!!js` node is not that case. The loader evaluates the expression
+      // first and coerces its *result*, so `disabled: !!js false` also leaves
+      // the row running — which this tool cannot know without running the
+      // expression, and running it is the one thing it may never do. An
+      // expression is therefore read as what it could evaluate to, which
+      // raises the finding rather than dropping it.
       if (!override.disabled) {
         const enabled = coreRowSeverity(override.id)
         if (enabled === null) continue

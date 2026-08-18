@@ -8,13 +8,15 @@ nav_order: 2
 [← dsh-plugin-inspector docs](index.md)
 
 
-Measured **2026-08-17** against the 40 most-starred GitHub repositories tagged `dsh-plugin` that
+Measured **2026-08-18** against the 40 most-starred GitHub repositories tagged `dsh-plugin` that
 publish a resolvable npm package, each pinned to the version it resolved to on 2026-08-16. Re-run
 it with `pnpm run sweep`; the corpus is `scripts/ecosystem-corpus.json` and the recorded
 measurement is `tests/ecosystem-baseline.json`.
 
 Both columns come from the same corpus and the same pinned versions, so the difference is this
-tool's doing and not the ecosystem's. "0.1" is `dsh-plugin-inspector@0.1.0`. "now" is this tree,
+tool's doing and not the ecosystem's. Each column is measured by running that build over the
+pinned tarballs; the `--fail-on` rows are the process exit codes, read directly.
+"0.1" is `dsh-plugin-inspector@0.1.0`. "now" is this tree,
 which reads its version out of its own manifest and records it in the baseline; the distribution
 has not moved a single finding since `0.2.1` first produced it, and `tests/unit/calibration.spec.ts`
 requires the recorded measurement to name the build that took it, so a release is not finished
@@ -26,7 +28,7 @@ until the sweep has been re-run against it.
 | Critical | 252 | **3** |
 | Median findings per package | 10.5 | **5.5** |
 | Packages with a high or critical | 27 of 40 (68 %) | **21 of 40 (53 %)** |
-| Packages failing `--fail-on critical` | 40 of 40 | **1 of 40** |
+| Packages failing `--fail-on critical` | 22 of 40 | **1 of 40** |
 | Clean packages | 0 of 40 | **0 of 40** |
 
 **The 0.1 README quoted "49 findings, 0 critical" and that number was worthless.** It was measured

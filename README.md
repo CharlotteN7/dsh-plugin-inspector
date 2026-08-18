@@ -84,8 +84,8 @@ Findings are tiered by how much you should trust them:
 intent is not. Every Tier B check has a one-line bypass, and the tool says so per finding rather
 than implying a completeness it does not have. What it does guarantee is that it never runs the
 code it analyses — asserted from outside the unit suite by a CI canary whose fixture writes
-sentinel files from `preinstall`, `postinstall`, `prepare`, `!!js` config and module top level. Any
-sentinel on disk after a full analysis is a release blocker.
+sentinel files from `preinstall`, `postinstall`, `prepare`, `!!js` config, `!!js` disabled, and
+module top level. Any sentinel on disk after a full analysis is a release blocker.
 
 [What is not statically decidable →](https://charlotten7.github.io/dsh-plugin-inspector/ceiling.html) ·
 [What it reports on the real ecosystem →](https://charlotten7.github.io/dsh-plugin-inspector/ecosystem.html)
@@ -100,8 +100,13 @@ pnpm run test:coverage
 pnpm run test:e2e
 ```
 
-Severity calibration is pinned against a corpus of published packages, so a change that starts
-firing on ordinary code fails CI rather than shipping.
+Severity calibration is pinned against a corpus of forty published packages, in
+`tests/ecosystem-baseline.json`. **The sweep is not part of CI** — every other workflow here runs
+without a network, which is what lets the unit suite claim that analysing a package touches nothing
+outside the process — so it runs as a weekly cron and on request, and a change that starts firing
+on ordinary code does not fail the pull request that makes it. What catches it is the release: the
+baseline records the build that measured it and a unit test fails unless that matches the version
+in `package.json`, so a version bump is not finished until the sweep has been re-run against it.
 
 Design decisions and their rationale live in [ADR.md](ADR.md). Security policy is in
 [SECURITY.md](SECURITY.md).

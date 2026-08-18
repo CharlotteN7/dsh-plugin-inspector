@@ -135,6 +135,13 @@ hand-typed, because the `name` half is load-bearing: `applyEntryPatches` treats 
 non-insert patch as an assertion guard, so a patch naming the wrong module is silently skipped
 in full. Check A4 exists only because that map does.
 
+The two tables the tiers lean on hardest are **exact** against the harness at `HARNESS_REFERENCE`,
+not approximations of it: `SEAM_KEYS` holds all 55 `SERVICE_API[].key` values from
+`packages/extensions/tool-cordis/src/api-catalog.ts`, and `CORE_ROWS` holds all 131 row ids the
+three shipped bundle patches declare — 55 = 55 and 131 = 131, with no id in either direction that
+the other side does not have. What goes stale is the harness version they describe, not the
+completeness of the transcription.
+
 ---
 
 ## 7. Tier C degrades Tier B, and Tier A is exempt
@@ -167,6 +174,17 @@ arbitrary strings.
 **Why.** Those two surfaces reach the model verbatim, unescaped and uncapped. Everything else does
 not, and scanning it would produce a stream of false positives from documentation that happens to
 quote an attack — including, immediately, this repository's own `README.md`.
+
+**"Registered" is a receiver guard, and it is the whole of B10.** A `description` property is only
+scanned when the object literal holding it reaches `<ctx>.tools.register(…)` or `defineTool(…)` —
+directly, or through a name a later line in the same file registers. `description` is one of the
+commonest property names in JavaScript: a JSON schema, an OpenAPI document, a changelog entry and a
+CLI option table all carry one, and none of that text goes anywhere near a model. Without the guard
+the heuristics run on all of them, and a package's release notes produce a `high` finding titled
+"Tool description …" about a tool the package does not have — a confident claim about a surface the
+check has not established exists. This is the same guard C2 carries for `.set`/`.get`/`.on`, for
+the same reason. Nested properties inside a registered definition do count: a parameter's
+`description` is rendered into the schema the model receives alongside the tool's own.
 
 **Honesty note carried in the findings.** These are heuristics over natural language. They will
 miss a rephrasing and they can fire on a document that legitimately discusses the subject. Every
@@ -221,7 +239,7 @@ config says exactly this so the number is not mistaken for the target.
 
 ---
 
-## 11. There is a seam to gate an install, and 0.2 deliberately does not use it
+## 11. There is a seam to gate an install, and this tool deliberately does not use it
 
 **Correction to §1.** §1 reason 2 said there is no seam at which to gate an install. That is
 wrong, and it was wrong when it was written. The chain:
@@ -239,7 +257,7 @@ wrong, and it was wrong when it was written. The chain:
 That is a real pre-install gate: the decision point this tool exists to inform, at the moment it
 still matters, with a refusal that actually refuses.
 
-**Decision.** 0.2 records the seam and ships nothing into it.
+**Decision.** The seam is recorded and nothing is shipped into it. That still holds at 0.5.
 
 **Why not now.** The gate is the highest-ceiling feature on the roadmap and it inherits whatever
 calibration sits underneath it. Measured on 40 published plugins, 0.1 produced 1,420 findings and
@@ -250,7 +268,7 @@ failure mode of a wrong one is not a false positive, it is a broken install of a
 wanted.
 
 So calibration lands first. 0.2 takes findings from 1,420 to 295 and criticals from 252 to 3, and
-`--fail-on critical` now stops 1 package in 40 rather than 40 in 40. That is the number a gate has
+`--fail-on critical` now stops 1 package in 40 rather than 22 in 40. That is the number a gate has
 to be built on, and it is the number that says whether the gate is worth building.
 
 **What the gate will have to answer, recorded now so 0.3 does not rediscover it.**

@@ -23,8 +23,12 @@ security bugs and are treated as such:
 - **A write anywhere on the filesystem** as a result of analysing a target. Tarballs are decoded
   entirely in memory and no extraction call exists in the source.
 - **A network request that was not asked for.** `--from-npm` is the only mode that opens a socket
-  and it is one explicit flag per invocation. A directory or tarball scan reaching the network — or
-  `--from-npm` reaching a host other than the registry it was given — is a security bug.
+  and it is one explicit flag per invocation. A directory or tarball scan reaching the network is a
+  security bug. `--from-npm` reaching a host other than the registry it was given is one too, and
+  it is already refused rather than merely disallowed: `resolvePackage` compares the packument's
+  `dist.tarball` origin against the registry base URL and throws before any download, so a single
+  doctored packument on an honest registry cannot make this tool fetch an arbitrary URL. A build
+  where that refusal is missing is the bug.
 - **Analysing bytes whose hash does not match what the registry published.** On the `--from-npm`
   path `dist.integrity` is verified before any byte reaches the parser. A mismatch that produces a
   report instead of a refusal is a security bug.
@@ -45,7 +49,8 @@ security bugs and are treated as such:
   is why a Tier C hit forbids the report from claiming a clean negative.
 - **A prompt-injection phrase the heuristics do not match.** These are heuristics over natural
   language and the findings say so. Homoglyph substitution — a Cyrillic `о` for a Latin `o` —
-  defeats every rule in the table, is known, and is recorded in the README's limitations.
+  defeats every rule in the table, is known, and is recorded in [`docs/ceiling.md`](docs/ceiling.md)
+  §8.
 - **A finding about a package you consider benign.** Tier B reports capability, not intent. Please
   do open a normal issue if a check fires on ordinary code — a false positive is a real defect —
   but it is not a security report.

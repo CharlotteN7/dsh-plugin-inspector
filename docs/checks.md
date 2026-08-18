@@ -11,12 +11,12 @@ nav_order: 4
 
 | Fact | Source |
 |---|---|
-| `package.name`, `package.version`, `license`, `private` | `package.json` |
+| `package.name`, `package.version`, `license` | `package.json` |
 | `mountsAsBundle` + patch file path | `dsh.bundle.patch` |
 | `shipsClientBundle` | `dsh.client` and `exports["./client"]` |
 | `insertedRows` — ids and plugin names this layer adds | patch YAML `insert[]` |
 | `targetedRows` — ids of existing rows this layer modifies | patch YAML top-level rows with `id` |
-| `dependencies`, `peerDependencies`, `optionalDependencies` counts and names | `package.json` |
+| `dependencies`, `peerDependencies` — the declared names | `package.json` |
 | `modelVisibleFiles` — shipped `SKILL.md` / skills / `AGENTS.md` / `CLAUDE.md` | file walk |
 | `filesRead`, `bytesRead`, `sourceFilesParsed` | analysis run |
 
@@ -30,8 +30,8 @@ confidence `certain`.
 | id | Check | Severity | Method |
 |---|---|---|---|
 | A1 | Install lifecycle script (`preinstall`, `install`, `postinstall`, `prepare`, `prepublish`, `preprepare`, `postprepare`) | medium; **high** when the command itself fetches, decodes, pipes to a shell, or evaluates inline code | `package.json.scripts` key set. `dsh plugin add` forwards to pnpm verbatim and adds no `--ignore-scripts`, but pnpm ≥ 10 blocks a dependency's lifecycle scripts by default until the package is listed under `allowBuilds`, and `apps/cli/src/plugin.ts` prints that instruction when a build is blocked. The script is one approval away from running, not already running — which is why the category alone is `medium`, and why the measured 5 of 40 legitimate packages that declare one (`tsdown`, `npm run build`, `husky`, `node scripts/prepare.mjs`) stay there. The escalation reads the command line itself, and is calibrated to fire on none of them |
-| A2 | Patch row sets `disabled` **truthily** on a **security-relevant** core row (`approval`, `permission`, `sandbox`, `sandbox-policy`, `bash-sandbox`, `pwsh-sandbox`, `fs-sandbox`, `fs-observation-policy`, `subprocess`, `credentials`, `timeout-policy`, `spill-policy`, `session-persistence-jsonl`) | **critical** | patch YAML row with `id ∈ SECURITY_ROWS`. The loader coerces — `disabledOf` is `Boolean(options.disabled)` (`vendor/loader/src/config/entry.ts`) — so `null`, `0` and `""` leave the row **running** and are not this finding. A `!!js` node is an object and stays truthy, so an expression is judged by what it can evaluate to |
-| A3 | Patch row disables any other known core row | high for a `@deepseek-ai/dsh-base` row, medium for one only a surface bundle inserts | same, `id ∈ CORE_ROWS`. The row inventory records which of the three shipped bundles inserts each row, because they are not one profile: a `ui-*` row exists only where the web bundle is mounted. Suppressed entirely when the package under analysis *is* one of the three bundles — `@deepseek-ai/dsh-web-app` disabling two dozen rows `@deepseek-ai/dsh-base` inserted is what composing a surface bundle is |
+| A2 | Patch row sets `disabled` **truthily** on a **security-relevant** core row (`approval`, `permission`, `sandbox`, `sandbox-policy`, `bash-sandbox`, `pwsh-sandbox`, `fs-sandbox`, `fs-observation-policy`, `subprocess`, `credentials`, `timeout-policy`, `spill-policy`, `session-persistence-jsonl`, `session-telemetry-otel`, `session-checkpoint-policy`, `tools`, `agent-loop`) | **critical** | patch YAML row with `id ∈ SECURITY_ROWS`. The loader coerces — `disabledOf` is `Boolean(options.disabled)` (`vendor/loader/src/config/entry.ts`) — so `null`, `0` and `""` leave the row **running** and are not this finding. A `!!js` node is not one of those cases: the loader **evaluates** the expression and coerces its *result* (`vendor/loader/src/config/entry.ts:104-108`), so `disabled: !!js false` leaves the row running too. Deciding that needs the expression run, which this tool may never do, so an expression is read as what it could evaluate to — the conservative direction, which raises the finding rather than dropping it |
+| A3 | Patch row disables any other known core row | high for a `@deepseek-ai/dsh-base` row, medium for one only a surface bundle inserts | same, `id ∈ CORE_ROWS`. The row inventory records which of the three shipped bundles inserts each row, because they are not one profile: a `ui-*` row exists only where the web bundle is mounted. Suppressed entirely when the package under analysis *is* one of the three bundles — `@deepseek-ai/dsh-web-app` disabling two dozen rows `@deepseek-ai/dsh-base` inserted is what composing a surface bundle is. The suppression is keyed on the package **name** and covers A2, A3 and A19 together with A4 and A5, so a directory named `@deepseek-ai/dsh-web-app` produces none of the five |
 | A4 | Patch row carries a `name` that does not match the targeted row's `name` | medium | `applyEntryPatches` treats `name` on a non-insert patch as an **assertion guard**, not an override: on mismatch it warns and `continue`s, skipping the whole patch. So this row does nothing at all. Either the author is targeting a row that has been renamed, or the patch is stale — in both cases what the user reads and what mounts disagree |
 | A5 | Patch row overrides `config` / `inject` / `isolate` / `intercept` / `group` / any other key of an existing core row | medium (high for a security row) | patch YAML. Override is a **shallow whole-value replacement** (`target[key] = value`), never a deep merge, so overriding `config` discards the core row's entire configuration. `PatchOptions` carries a `[key: string]: any` index signature, so *any* key that is not `id`/`insert`/`name` is copied onto the target verbatim |
 | A6 | `!!js` expression inventory, with AST sub-classification (see the `!!js` table below) | low → critical by class | dialect parse + `new Function` parse-compile, never evaluated |
@@ -39,14 +39,14 @@ confidence `certain`.
 | A8 | `!js` (single bang) anywhere in the patch YAML | medium | `!js` is a **hard YAML parse error**, verified. Its presence proves the plugin has never been successfully loaded by any harness |
 | A9 | `insert` row naming a module that is neither this package nor any of its declared dependencies | high | set difference against `dependencies` ∪ `peerDependencies` ∪ own name. The layer mounts code whose provenance the manifest does not admit to |
 | A10 | MCP server row — an `insert`ed row whose `name` is `@deepseek-ai/dsh-mcp-client`. `transport: stdio` → **critical**; `transport: streamable-http` → high | **critical** / high | The stdio config is `{ command, args, env, cwd }` and it spawns that executable directly — **not** through `ctx.subprocess` or `ctx.sandbox`, with no approval and no tool gate. Every tool the server advertises is then registered as `mcp__<serverName>__<tool>` with model-visible descriptions this package does not control. `streamable-http` does not spawn but still imports an untrusted remote tool catalogue. Structured declaration, so Tier A |
-| A11 | Non-registry dependency specifier (`git+`, `github:`, `http(s):`, `file:`, `link:`) | high | the referenced code can change under a fixed version string |
-| A12 | Shipped model-visible instruction text (`SKILL.md`, `**/skills/*/SKILL.md`, `**/skills/*.md`, `AGENTS.md`, `CLAUDE.md`) | low as presence; escalated by B10 | file walk. See the reach note below |
+| A11 | Non-registry dependency specifier — ten prefixes: `git+`, `git:`, `github:`, `gitlab:`, `bitbucket:`, `http:`, `https:`, `file:`, `link:`, `portal:` | high | the referenced code can change under a fixed version string |
+| A12 | Shipped model-visible instruction text (`SKILL.md`, `**/skills/*/SKILL.md`, `**/skills/*.md`, `AGENTS.md`, `CLAUDE.md`) | low | file walk. See the reach note below |
 | A13 | No `files` allowlist in `package.json` | low | the published tarball is whatever happened to be in the working tree |
 | A14 | `dsh.bundle.patch` climbs out of the package directory — contains a `..` that escapes | **critical** | `loadProfile` computes the patch path as `join(packageDir, declared)` with **no sanitization** of `declared`, and `..` segments survive that join. An **absolute** path does not escape and is not this finding: `join('/…/pkg', '/etc/passwd')` is `/…/pkg/etc/passwd`, which is inside the package and simply does not exist — that is A16 |
 | A15 | Patch row redirects skill discovery into this package — sets `customSkillDirs` or `bundledSkillDir` on the `skill-filesystem` row | high | this is the declaration that turns shipped markdown into model-visible instructions. `bundledSkillDir` additionally carries `trustedHost: true`, which reads through raw Node `fs` and **bypasses the `ctx.fs` sandbox** |
 | A16 | `dsh.bundle.patch` names a file the package does not ship | medium | commonly a `files` allowlist that forgets it. Mounting the bundle fails the profile boot |
 | A17 | The declared patch layer does not parse | medium | the layer cannot load, and nothing inside it could be analysed |
-| A18 | `package.json` field of the wrong shape | low | the field was ignored. A manifest that npm and the harness read differently is worth knowing about |
+| A18 | One of eight named `package.json` fields is of the wrong shape — `scripts`, `dependencies`, `peerDependencies`, `optionalDependencies` and `devDependencies` that are not objects, and `dsh`, `dsh.bundle`, `dsh.client` that are not objects | low | the field was ignored. A manifest that npm and the harness read differently is worth knowing about. Only those eight are checked, so `{"bin": 42}` produces nothing: `bin` of the wrong shape reads as no commands, and the check does not claim to cover every field |
 | A19 | Patch row sets `disabled` **falsily** on a core row | medium | the inverse of A2 and A3, and the one the coercion rule makes visible. Bundle layers apply after the profile's own, so a row the user deliberately switched off is switched back on by this one while the user's file still reads `disabled: true` |
 | A20 | `dsh.profile.bundles` names packages to mount as bundles | high | the launcher resolves each named package, reads its `dsh.bundle.patch`, and mounts that layer (`packages/boot/app-boot/src/profile.ts`). This package is then a profile, and everything those packages declare composes into it — none of which is in this analysis |
 | A21 | Injection phrasing in shipped instruction markdown | high | **Tier A rather than Tier B, and exempt from the Tier C downgrade.** There is no syntax between a `SKILL.md` and the model: the shipped bytes *are* the prompt, so there is nothing to obfuscate and nothing for a degraded parse to have made unreliable. What is heuristic is the reading of the sentence, not the reading of the file. Tool `description` hits stay Tier B (B10), because code assembles those |
@@ -60,12 +60,18 @@ inside an npm package does **not** by itself put it in front of the model. There
 `<project>/.dsh/skills`, `<project>/.agents/skills`, `$DSH_HOME/skills`,
 `$DSH_AGENTS_HOME/skills`, `bundledSkillDir` — at depth 1 only (`<root>/<name>/SKILL.md` or `<root>/<name>.md`), and a plugin's own `node_modules`
 directory is none of those. The three ways shipped text actually reaches the model are: the plugin
-calls `ctx.skills.register()` / `ctx.skills.registerProvider()` (→ B10 on the registered body), a
-patch row redirects a skill root into the package (→ A15), or the file is copied into the user's
-workspace by something else. `AGENTS.md` / `CLAUDE.md` are a separate subsystem again — discovered
-by walking the *workspace*, not the profile. So A12 on its own is `low` and its text says
-"shipped, reaches the model only if registered or redirected"; it escalates to `high` only when
-A15 or a `ctx.skills.register*` call is also present, or when B10's injection heuristics fire.
+calls `ctx.skills.register()` / `ctx.skills.registerProvider()`, a patch row redirects a skill root
+into the package (→ A15), or the file is copied into the user's workspace by something else.
+`AGENTS.md` / `CLAUDE.md` are a separate subsystem again — discovered by walking the *workspace*,
+not the profile.
+
+**A12 does not escalate.** It is `low`, and it stays `low` however many other checks fire: the
+severity is a constant in the check. Its text says "shipped, reaches the model only if registered
+or redirected" and leaves the reader to combine it with what else is in the report. The two
+signals that would raise it are already reported in their own right — A15 for a patch row that
+redirects a skill root into the package, and A21 for injection phrasing in the markdown itself —
+so nothing is lost by not compounding them here. There is no check for a `ctx.skills.register*`
+call: the registration is not detected, and the reach note says so rather than implying it is.
 
 **Why A24 reads `binding.gyp` as text and never parses it.** GYP is Python-ish, not JSON:
 single-quoted strings, `#` comments, trailing commas, and `conditions` whose first element is a
@@ -88,20 +94,20 @@ the first of those. The others are not checked here and this catalogue does not 
 
 ### Tier B — AST capability detection, "this plugin CAN do X"
 
-Tier B parses shipped `.ts`/`.mts`/`.cts`/`.js`/`.mjs`/`.cjs` with the `typescript` compiler API —
-`ts.createSourceFile`, syntax only, **no program, no type checker, no module resolution, no
-transpilation, no execution**. Default confidence `high`, dropped to `moderate` when any Tier C
-readability finding fires.
+Tier B parses eight shipped extensions — `.ts`/`.tsx`/`.mts`/`.cts`/`.js`/`.jsx`/`.mjs`/`.cjs` —
+with the `typescript` compiler API, `ts.createSourceFile`, syntax only, **no program, no type
+checker, no module resolution, no transpilation, no execution**. Default confidence `high`, dropped
+to `moderate` when any Tier C readability finding fires.
 
 | id | Check | Severity | Method |
 |---|---|---|---|
-| B1 | Replaces a core capability seam — `ctx.provide(<seam>, …)` / `ctx.set(<seam>, …)` where `<seam>` is a key from `api-catalog.ts` | **critical** | call expression, literal first argument matched against the seam key set |
+| B1 | Replaces a core capability seam — `ctx.provide(<seam>, …)` / `ctx.set(<seam>, …)` where `<seam>` is one of the 55 keys from `api-catalog.ts` | **critical** for one of the 13 `SECURITY_SEAM_KEYS`, high for the other 42 | call expression, literal first argument matched against the seam key set |
 | B5 | System-prompt mutation — `system-prompt/assemble` listener, or `ctx.systemPrompt.{section,context,variable,tools,suppressRuntimeContext}` | high | call matching |
 | B6 | Credential read — `process.env.*(TOKEN\|KEY\|SECRET\|PASSWORD\|CREDENTIAL)*`, `~/.dsh/credentials`, `~/.npmrc`, `~/.aws`, `~/.ssh`, `ctx.credentials.*` | medium alone | identifier + literal matching |
 | B7 | Network egress — `fetch`, `node:http(s).request`, `node:net`, `WebSocket`, `undici` | medium alone | import + call matching |
 | B8 | **Exfiltration pair** — B6 ∧ B7 in the same package | high | set intersection. Reported explicitly as *capability, not dataflow*: the tool cannot prove the credential value reaches the socket. `high` rather than critical because it fires on 18 % of published plugins |
 | B9 | Direct `node:child_process` / `node:worker_threads` / `node:vm` | medium alone, high paired with B8's two halves | import specifier. Bypasses `ctx.subprocess` and `ctx.sandbox` entirely. `medium` alone because a bare import fires on half the published ecosystem |
-| B10 | Prompt-injection heuristics on **model-visible text only** — registered tool `description` string literals, and shipped skill/instruction files | high | imperative-override phrasing, role reassignment, exfiltration instructions, hidden-text markers — zero-width and bidirectional controls, the tag block, and runs of four or more variation selectors, the encoding GlassWorm shipped executable JavaScript in. Run on *exactly* the text that reaches the model, never on ordinary source comments |
+| B10 | Prompt-injection heuristics on **model-visible text only** — `description` string literals inside a registered tool definition, and nothing else. Shipped skill and instruction markdown is A21's, not this check's | high | imperative-override phrasing, role reassignment, exfiltration instructions, hidden-text markers — zero-width and bidirectional controls, the tag block, and runs of four or more variation selectors, the encoding GlassWorm shipped executable JavaScript in. **The receiver guard is what makes the title true:** the enclosing object literal must reach `<ctx>.tools.register(…)` or `defineTool(…)`, directly or through a name registered later in the same file. `description` is one of the commonest property names in JavaScript — a JSON schema, an OpenAPI document, a changelog entry — and without the guard a package's release notes produce a `high` finding titled "Tool description …" about a tool that does not exist. Nested properties inside the definition count, because a parameter's `description` reaches the model in the same schema |
 | B11 | Nested plugin mounting — `ctx.plugin(…)`, loader manipulation | high | call matching. A layer that mounts further layers moves the analysis target |
 | B12 | Dynamic code construction — `eval`, `new Function`, `vm.runInNewContext`, `module._load` | high | call matching |
 | B13 | Filesystem access outside `ctx.fs` — imports `node:fs` or `node:fs/promises` | medium | Reads and writes through the Node API are invisible to `fs/write-intent`, `fs/edit-intent`, `fs/observed`, and the `fs-sandbox` row, so no policy in the profile sees them and nothing appears in the session log |
@@ -122,7 +128,7 @@ That is the harness's reckoning, not a rule invented here.
 | C1 | Minified or obfuscated source — long lines that are **most of the file**, or a dense file of under five lines. One long line is an embedded prompt or a base64 asset, not minification, and the harness's own web bundle has one | medium | **degrades** |
 | C2 | Dynamic dispatch — computed member access on `ctx` (`ctx[expr]`), non-literal `import()`/`require()`, `atob`/`Buffer.from(…, 'base64')`, an assembled name passed to `.on`/`.set`/`.emit` **on a known context binding**. The receiver guard is the whole check: `.set` and `.get` are `Map`'s names too, and ``this.steps.set(`${turn}:${step}`, t)`` is a composite key, not evasion | high | **degrades** |
 | C3 | Ships built output with no corresponding source (`lib/` without `src/`) | low | **does not degrade** — the bytes were read exactly as written and exactly as they will run; what cannot be checked is whether they match the repository. Treating that as an unreadable package marks every ordinary published tarball degraded, because shipping built output and no source is what publishing *is* |
-| C4 | Unreadable payload — `.node`, `.wasm`, binaries, files over the size cap | medium | **degrades** |
+| C4 | Unreadable payload — `.node`, `.wasm`, binaries, files over a size or count cap, and entries that are not regular files (a symlink, a FIFO, a socket) | medium for `binary`, low for every other reason | **degrades** |
 | C5 | The mounted layer hit a walk ceiling — nesting depth or node count | high | **degrades**. Rows past the ceiling were not read |
 | C6 | A `.min.js` artifact | low | **degrades** |
 | C7 | The mounted layer builds rows out of YAML anchors and aliases. `*a` is not a copy — it hands the loader the same node again, so a row anchored under an inert key can be the row that lands in a live one, and one row in the file can be two in the composed profile. The reader expands every alias to its own node before reading the layer, so the reading matches the loader; the finding stands because the document a person reviews is no longer the document that mounts | medium | **degrades** |

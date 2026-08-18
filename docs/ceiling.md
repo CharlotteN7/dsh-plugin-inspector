@@ -15,9 +15,11 @@ today you see nothing. That is the whole claim.
 
 A seam at which an install *could* be stopped does exist — `dsh plugin add` runs pnpm in the
 profile directory, pnpm honours a `.pnpmfile.cjs` there, and throwing from its async `readPackage`
-hook aborts the install with nothing written to `node_modules`. Nothing in 0.2 uses it.
-[`ADR.md`](./ADR.md) §11 records the seam and why shipping a gate on this release's calibration
-would have burned the idea.
+hook aborts the install with nothing written to `node_modules`. Nothing in 0.5 uses it.
+[`ADR.md`](https://github.com/CharlotteN7/dsh-plugin-inspector/blob/main/ADR.md) §11 records the
+seam and why shipping a gate on this release's calibration would have burned the idea. The link
+leaves the site on purpose: Pages builds from `docs/` alone, so a relative link to a file at the
+repository root is a 404 on the published page.
 
 ### What is not statically decidable
 
@@ -52,7 +54,7 @@ would have burned the idea.
    regexes. Substituting Cyrillic homoglyphs — `о` U+043E for `o`, `е` U+0435 for `e` — defeats
    **every one of the eleven rules**, including the two hidden-character rules, which look for
    invisible characters and not for visible ones that are the wrong letter. Verified against the
-   rule table, not assumed. Normalisation is not in 0.2; do not read a clean `A21`/`B10` as
+   rule table, not assumed. Normalisation is not in 0.5; do not read a clean `A21`/`B10` as
    evidence that shipped markdown carries no instructions.
 
 ### Every Tier B check has a one-line bypass
