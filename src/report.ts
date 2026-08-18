@@ -141,7 +141,11 @@ function renderFacts(report: Report, paint: (code: string, text: string) => stri
       ? []
       : [
           ['fetched from', `${provenance.tarball} (${provenance.tarballBytes} bytes, never written to disk)`] as [string, string],
-          ['verified', `${provenance.digest} matched dist.integrity before anything parsed it`] as [string, string],
+          // Which field matched is not cosmetic: `dist.shasum` is SHA-1 and is
+          // only reached on packages published before npm 5, so naming
+          // `dist.integrity` there would report a stronger check than ran.
+          ['verified', `${provenance.digest} matched `
+            + `${provenance.algorithm === 'sha1' ? 'dist.shasum' : 'dist.integrity'} before anything parsed it`] as [string, string],
           ['install script', provenance.hasInstallScript
             ? 'yes — the registry marks this package as running one at install time'
             : 'no — the registry does not mark this package as running one'] as [string, string],

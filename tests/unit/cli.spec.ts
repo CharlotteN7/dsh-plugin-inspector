@@ -202,6 +202,39 @@ describe('--from-npm', () => {
     }
   })
 
+  it('names the field that actually matched on a package published before `dist.integrity`', async () => {
+    // Saying `dist.integrity` here would report a stronger check than the one
+    // that ran: this path is SHA-1, and the report is what a reader judges the
+    // provenance by.
+    const bytes = readFileSync(await packExactly(
+      createPackage({
+        'package.json': JSON.stringify({ name: 'ancient', version: '1.0.0', files: ['lib/**/*.js'] }),
+        'lib/index.js': 'export const name = "ancient"\n',
+      }),
+      ['package.json', 'lib/index.js'],
+    ))
+    const tarball = 'https://registry.npmjs.org/ancient/-/ancient-1.0.0.tgz'
+    const metadata = JSON.stringify({
+      name: 'ancient',
+      version: '1.0.0',
+      dist: { tarball, shasum: createHash('sha1').update(bytes).digest('hex') },
+    })
+    const original = globalThis.fetch
+    globalThis.fetch = ((url: string | URL): Promise<Response> => Promise.resolve(
+      String(url) === tarball
+        ? new Response(new Uint8Array(bytes), { status: 200 })
+        : new Response(metadata, { status: 200 }),
+    )) as unknown as typeof globalThis.fetch
+    try {
+      const result = await run(['--from-npm', 'ancient@1.0.0', '--no-color'])
+      expect(result.code).toBe(EXIT.clean)
+      expect(result.out).toContain('matched dist.shasum before anything parsed it')
+      expect(result.out).not.toContain('dist.integrity')
+    } finally {
+      globalThis.fetch = original
+    }
+  })
+
   it('leaves with 2 when the registry cannot be reached, never with a verdict', async () => {
     const original = globalThis.fetch
     globalThis.fetch = (() => Promise.reject(new Error('ENOTFOUND'))) as unknown as typeof globalThis.fetch
