@@ -15,7 +15,9 @@
  * cap.
  *
  * Symbolic links are recorded and never followed, for the same reason: a link
- * pointing outside the package is not part of the package.
+ * pointing outside the package is not part of the package. Anything else that
+ * is not a regular file — a FIFO, a socket, a device node — is recorded the
+ * same way and never opened.
  * @module dsh-plugin-inspector/source
  */
 
@@ -182,7 +184,14 @@ function walkDirectory(root: string, directory: string, collector: Collector, pu
       walkDirectory(root, absolute, collector, published)
       continue
     }
-    if (!entry.isFile()) continue
+    if (!entry.isFile()) {
+      // A FIFO, socket or device node the publish set includes is content the
+      // analyzer did not read, and "how much could be read" is the one number
+      // that may never be overstated. Reading one is also not an option: a
+      // `readFileSync` on a FIFO blocks until somebody writes to it.
+      if (published.includes(path)) collector.skipped.push({ path, reason: 'unreadable' })
+      continue
+    }
     if (!published.includes(path)) {
       collector.unpublished += 1
       continue

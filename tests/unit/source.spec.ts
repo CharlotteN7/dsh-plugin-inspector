@@ -287,14 +287,49 @@ describe('the directory reader', () => {
     expect([...source.files.keys()]).toEqual(['lib/index.js', 'package.json'])
   })
 
-  it('reads past a directory entry that is neither a file nor a directory', async () => {
+  it('records a published entry that is neither a file nor a directory, rather than dropping it', async () => {
+    // A socket, a FIFO and a device node are all in the published file set and
+    // none of them is content the analyzer read. Dropping one silently is the
+    // single shape where "how much could be read" comes out too high: the
+    // symbolic link in the same position is reported, and this was not.
     const root = createPackage({ 'package.json': '{"name":"socketed","version":"1.0.0"}' })
     const server = createServer()
     await new Promise<void>(resolve => server.listen(join(root, 'live.sock'), resolve))
     try {
       const source = await loadSource(root)
       expect([...source.files.keys()]).toEqual(['package.json'])
+      expect(source.skipped).toEqual([{ path: 'live.sock', reason: 'unreadable' }])
+    } finally {
+      await new Promise<void>(resolve => server.close(() => resolve()))
+    }
+  })
+
+  it('says nothing about one npm would not publish', async () => {
+    const root = createPackage({
+      'package.json': '{"name":"socketed","version":"1.0.0","files":["lib/**/*.js"]}',
+      'lib/index.js': 'export const a = 1\n',
+    })
+    const server = createServer()
+    await new Promise<void>(resolve => server.listen(join(root, 'live.sock'), resolve))
+    try {
+      const source = await loadSource(root)
       expect(source.skipped).toEqual([])
+    } finally {
+      await new Promise<void>(resolve => server.close(() => resolve()))
+    }
+  })
+
+  it('degrades the analysis over one, because it is a file the report cannot account for', async () => {
+    const root = createPackage({
+      'package.json': '{"name":"socketed","version":"1.0.0"}',
+      'index.js': 'export const a = 1\n',
+    })
+    const server = createServer()
+    await new Promise<void>(resolve => server.listen(join(root, 'live.sock'), resolve))
+    try {
+      const report = await inspect(root)
+      expect(onlyCheck(report, 'C4').severity).toBe('low')
+      expect(report.analysis.integrity).toBe('degraded')
     } finally {
       await new Promise<void>(resolve => server.close(() => resolve()))
     }
