@@ -216,6 +216,15 @@ describe('a shipped skill carrying injection text', () => {
     expect(rules.some(detail => detail.includes('conceal-from-user'))).toBe(true)
   })
 
+  it('is A21 and only A21 — B10 reads tool descriptions, never shipped markdown', async () => {
+    // This pins the boundary between the two checks rather than a fix: B10 has
+    // never read a `SKILL.md`, and the catalogue said it did. The division is
+    // load-bearing, because A21 is exempt from the Tier C downgrade and B10 is
+    // not, so a finding on the wrong side of it carries the wrong confidence.
+    const report = await inspect(fixture('skill-injection'))
+    expect(withCheck(report, 'B10')).toEqual([])
+  })
+
   it('is Tier A, so a minified sibling file cannot lower its confidence', async () => {
     // The shipped markdown IS the prompt: there is no syntax between these
     // bytes and the model, so there is nothing for a Tier C degradation to

@@ -668,7 +668,7 @@ function checkModelVisibleText(input: CheckInput): Finding[] {
     detail: 'Skill and agent-instruction markdown reaches the model verbatim, unescaped and uncapped. Shipping it '
       + 'in an npm package does not by itself put it in front of the model: it is discovered only when the plugin '
       + 'registers it through ctx.skills, when a patch row redirects a skill root into this package (A15), or when '
-      + 'something copies it into the user\'s workspace. The text itself is scored separately by B10.',
+      + 'something copies it into the user\'s workspace. The text itself is scored separately by A21.',
     /* v8 ignore next -- the caller returns early on an empty list. */
     evidence: { file: input.modelVisibleFiles[0] ?? '', snippet: snippet(input.modelVisibleFiles.join(', ')) },
   })]

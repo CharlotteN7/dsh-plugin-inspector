@@ -76,6 +76,14 @@ const DYNAMIC_CODE_CALLEES: ReadonlySet<string> = new Set([
   'eval', 'runInNewContext', 'runInThisContext', 'runInContext', 'compileFunction',
 ])
 
+/**
+ * The harness's own tool-definition helper, exported from
+ * `@deepseek-ai/dsh-tools`. Every registered tool in the harness is built by
+ * either calling it or handing `tools.register` a literal, so recognising the
+ * two shapes is what tells a tool `description` from every other kind.
+ */
+const TOOL_DEFINITION_HELPER = 'defineTool'
+
 /** `ctx.systemPrompt` members that change what the model is told. */
 const SYSTEM_PROMPT_MEMBERS: ReadonlySet<string> = new Set([
   'section', 'context', 'variable', 'tools', 'suppressRuntimeContext',
@@ -384,12 +392,76 @@ function checkCredentialRead(file: ParsedFile, node: ts.Node, accumulator: Accum
   accumulator.credentialRead ??= finding
 }
 
+/**
+ * Whether a call hands its arguments to the tool registry: the registry call
+ * itself, `<ctx>.tools.register(…)`, or the harness's `defineTool(…)` helper,
+ * whose argument is a tool definition and nothing else.
+ * @param node - the call expression.
+ * @returns true when its arguments are tool definitions.
+ */
+function isToolRegistration(node: ts.CallExpression): boolean {
+  const callee = node.expression
+  if (ts.isIdentifier(callee)) return callee.text === TOOL_DEFINITION_HELPER
+  return ts.isPropertyAccessExpression(callee) && callee.name.text === 'register'
+    && ts.isPropertyAccessExpression(callee.expression) && callee.expression.name.text === 'tools'
+}
+
+/**
+ * Whether a name bound in this file is passed to a tool registration call, so
+ * a definition built as `const tool = {…}` and registered on a later line is
+ * still recognised as one.
+ * @param name - the bound identifier.
+ * @param file - the parsed file it was bound in.
+ * @returns true when a registration call in the same file receives it.
+ */
+function isRegisteredName(name: string, file: ParsedFile): boolean {
+  let registered = false
+  const visit = (node: ts.Node): void => {
+    if (ts.isCallExpression(node) && isToolRegistration(node)
+      && node.arguments.some(argument => ts.isIdentifier(argument) && argument.text === name)) {
+      registered = true
+    }
+    ts.forEachChild(node, visit)
+  }
+  ts.forEachChild(file.node, visit)
+  return registered
+}
+
+/**
+ * Whether a `description` property belongs to a tool definition this package
+ * registers.
+ *
+ * The receiver guard is the whole check. `description` is one of the commonest
+ * property names in JavaScript — a JSON schema, an OpenAPI document, a
+ * changelog entry and a CLI option table all carry one — and none of that text
+ * reaches a model. Without the guard the injection heuristics run on release
+ * notes, and the finding's title then asserts something about a tool that the
+ * package does not have.
+ *
+ * Nested properties count, because the whole definition is model-visible: a
+ * parameter's `description` is rendered into the tool schema the model
+ * receives alongside the tool's own.
+ * @param node - the `description` property assignment.
+ * @param file - the parsed file it came from.
+ * @returns true when an enclosing object literal is a registered tool definition.
+ */
+function isRegisteredToolDescription(node: ts.PropertyAssignment, file: ParsedFile): boolean {
+  let parent: ts.Node = node.parent
+  for (;;) {
+    if (ts.isCallExpression(parent)) return isToolRegistration(parent)
+    if (ts.isVariableDeclaration(parent)) return ts.isIdentifier(parent.name) && isRegisteredName(parent.name.text, file)
+    if (!ts.isObjectLiteralExpression(parent) && !ts.isPropertyAssignment(parent)) return false
+    parent = parent.parent
+  }
+}
+
 /** B10 — injection phrasing in a registered tool description. */
 function checkToolDescription(file: ParsedFile, node: ts.Node, accumulator: Accumulator): void {
   if (!ts.isPropertyAssignment(node)) return
   if (!ts.isIdentifier(node.name) || node.name.text !== 'description') return
   const text = literalText(node.initializer)
   if (text === null) return
+  if (!isRegisteredToolDescription(node, file)) return
   for (const match of scanInjection(text)) {
     accumulator.findings.push(tierB({
       checkId: 'B10',
@@ -397,11 +469,14 @@ function checkToolDescription(file: ParsedFile, node: ts.Node, accumulator: Accu
       subject: match.ruleId,
       severity: 'high',
       title: `Tool description ${match.meaning}`,
-      detail: `Heuristic \`${match.ruleId}\` matched a tool \`description\`, which is prompt text the model receives `
-        + 'verbatim on every request that lists the tool. This is a natural-language heuristic: it will miss a '
-        + 'rephrasing, and it can fire on a description that legitimately discusses the subject.',
+      detail: `Heuristic \`${match.ruleId}\` matched a \`description\` inside a registered tool definition, which is `
+        + 'prompt text the model receives verbatim on every request that lists the tool. This is a natural-language '
+        + 'heuristic: it will miss a rephrasing, and it can fire on a description that legitimately discusses the '
+        + 'subject.',
       evidence: { ...at(file, node), snippet: snippet(match.excerpt) },
-      bypass: 'any rephrasing the pattern does not cover, or building the description by concatenation',
+      bypass: 'any rephrasing the pattern does not cover, building the description by concatenation, or registering '
+        + 'the definition through a value this tool does not track — a definition exported from one file and passed '
+        + 'to `tools.register` in another is not matched',
     }))
   }
 }
