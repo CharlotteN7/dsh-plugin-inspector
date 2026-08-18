@@ -20,7 +20,7 @@ export type Severity = 'critical' | 'high' | 'medium' | 'low'
  */
 export type Confidence = 'certain' | 'high' | 'moderate' | 'low'
 
-/** Which analysis produced a finding. See PLAN.md §6. */
+/** Which analysis produced a finding. See the check catalogue, `docs/checks.md`. */
 export type Tier = 'A' | 'B' | 'C'
 
 /** Severity ordering, ascending. Used for `--fail-on` comparison and ranking. */
@@ -62,7 +62,7 @@ export const MAX_EXAMPLES = 3
  * finding that does.
  */
 export interface Finding {
-  /** Catalogue id from PLAN.md §6, e.g. `A2`. Stable across releases. */
+  /** Catalogue id from `docs/checks.md`, e.g. `A2`. Stable across releases. */
   readonly checkId: string
   /** Machine-readable check name, e.g. `core-row-disabled`. Stable across releases. */
   readonly name: string
@@ -131,7 +131,7 @@ export interface Facts {
   readonly unmountedPatchFiles: readonly string[]
   readonly dependencies: readonly string[]
   readonly peerDependencies: readonly string[]
-  /** Shipped markdown that can reach the model. See PLAN.md §6.1 reach note. */
+  /** Shipped markdown that can reach the model. See the A12 reach note in `docs/checks.md`. */
   readonly modelVisibleFiles: readonly string[]
   readonly filesRead: number
   readonly bytesRead: number
