@@ -271,6 +271,26 @@ describe('an assembled name passed to a method the plugin API also has', () => {
     expect(withCheck(report, 'C2')).toHaveLength(1)
   })
 
+  it('is dynamic dispatch when the name comes back from a call', async () => {
+    const report = await inspect(createPackage({
+      'package.json': JSON.stringify({ name: 'assembled', version: '1.0.0', files: ['lib/**/*.js'] }),
+      'lib/index.js': 'export const wire = (ctx) => ctx.on(eventName(), () => undefined)\n',
+    }))
+    expect(onlyCheck(report, 'C2').subject).toContain('`ctx.on()`')
+  })
+
+  it('is not dynamic dispatch when the name is a constant the module holds', async () => {
+    // `ctx.on(EVENT, …)` against a module constant is how a well-written
+    // plugin is spelled. Reading it as evasion would degrade nearly all of
+    // them, so a name that is only *referred* to is left alone.
+    const report = await inspect(createPackage({
+      'package.json': JSON.stringify({ name: 'named', version: '1.0.0', files: ['lib/**/*.js'] }),
+      'lib/index.js': 'const EVENTS = { pre: "tools/pre-execute" }\n'
+        + 'export const wire = (ctx) => ctx.on(EVENTS.pre, () => undefined)\n',
+    }))
+    expect(withCheck(report, 'C2')).toEqual([])
+  })
+
   it('still reports a runtime base64 decode wherever it appears', async () => {
     const report = await inspect(createPackage({
       'package.json': JSON.stringify({ name: 'decoder', version: '1.0.0', files: ['lib/**/*.js'] }),
@@ -281,6 +301,121 @@ describe('an assembled name passed to a method the plugin API also has', () => {
     const decode = onlyCheck(report, 'C2')
     expect(decode.occurrences).toBe(2)
     expect(decode.examples.map(example => example.path)).toEqual(['1:18', '2:18'])
+  })
+})
+
+/**
+ * Build a package whose one shipped module is the given source.
+ * @param source - the module text.
+ * @param name - the package name.
+ * @returns the package root.
+ */
+function shipped(source: string, name = 'shipped'): string {
+  return createPackage({
+    'package.json': JSON.stringify({ name, version: '1.0.0', files: ['lib/**/*.js'] }),
+    'lib/index.js': source,
+  })
+}
+
+describe('a module reached without an import declaration', () => {
+  // `process.getBuiltinModule(id)` returns the same module object `require`
+  // returns, needs no import list, and is not spelled `require`. The harness's
+  // own sandbox never sees it, because it leaves `process` undefined.
+  it('is reported by the same check the import would have raised', async () => {
+    const report = await inspect(shipped('export const fs = process.getBuiltinModule("node:fs")\n'))
+    const finding = onlyCheck(report, 'B13')
+    expect(finding.subject).toBe('node:fs')
+    expect(finding.title).toBe('Loads `node:fs` through `process.getBuiltinModule` rather than using the '
+      + '`ctx.fs` service')
+    expect(report.analysis.negativesReliable).toBe(true)
+  })
+
+  it('is reported when the specifier is assembled out of constants', async () => {
+    const report = await inspect(shipped(
+      'export const cp = require(["node:child", "_process"].join(""))\n',
+    ))
+    expect(onlyCheck(report, 'B9').subject).toBe('node:child_process')
+    // Folded, so there is nothing left unread: the report is not degraded for
+    // a name the tool resolved.
+    expect(withCheck(report, 'C2')).toEqual([])
+    expect(report.analysis.negativesReliable).toBe(true)
+  })
+
+  it('degrades the report when the specifier is one the folder cannot resolve', async () => {
+    const report = await inspect(shipped(
+      'const id = ["node:child", "_process"].join("")\nexport const cp = process.getBuiltinModule(id)\n',
+    ))
+    expect(withCheck(report, 'B9')).toEqual([])
+    expect(onlyCheck(report, 'C2').subject).toBe('loads a module from a computed specifier')
+    expect(report.analysis.negativesReliable).toBe(false)
+  })
+
+  it('says nothing when the getter is called on something that is not `process`', async () => {
+    const report = await inspect(shipped('export const fs = shim.getBuiltinModule("node:fs")\n'))
+    expect(report.findings.filter(finding => finding.tier === 'B')).toEqual([])
+  })
+})
+
+describe('an API method detached from the receiver every check matches it on', () => {
+  // B1 reads `ctx.provide`, B5 reads `ctx.on`, B10 reads `tools.register`.
+  // Bound to a bare name the call does the same thing and matches none of
+  // them, and following the binding is value tracking this tool does not do.
+  // So the site is Tier C's: the report degrades rather than reading clean.
+  it('degrades the report when the seam method is destructured off the context', async () => {
+    const report = await inspect(shipped(
+      'export function apply(ctx) {\n  const { provide } = ctx\n'
+      + '  provide.call(ctx, "approval", {})\n}\n',
+    ))
+    expect(withCheck(report, 'B1')).toEqual([])
+    expect(onlyCheck(report, 'C2').subject).toBe('binds `provide` off `ctx` to a bare name')
+    expect(onlyCheck(report, 'C2').detail).toContain('value tracking this tool does not do')
+    expect(report.analysis.negativesReliable).toBe(false)
+  })
+
+  it('degrades the report when the method is aliased to a name of its own', async () => {
+    const report = await inspect(shipped('export const wire = (ctx) => { const p = ctx.provide\n  return p }\n'))
+    expect(onlyCheck(report, 'C2').subject).toBe('binds `provide` off `ctx` to a bare name')
+  })
+
+  it('degrades the report when the context arrives destructured at the plugin entry point', async () => {
+    // `apply`'s first parameter is the plugin context by the harness's own
+    // mount contract, so the receiver is known without a binding to follow.
+    const report = await inspect(shipped('export function apply({ provide }) { provide("approval", {}) }\n'))
+    expect(onlyCheck(report, 'C2').subject).toBe('binds `provide` off the plugin context to a bare name')
+  })
+
+  it('reads a computed key in the pattern as the computed member access it is', async () => {
+    const report = await inspect(shipped('export const wire = (ctx, key) => { const { [key]: fn } = ctx\n'
+      + '  return fn }\n'))
+    expect(onlyCheck(report, 'C2').subject).toBe('resolves a member of `ctx` from a computed name')
+  })
+
+  it('follows the context held on a field, as the call form already does', async () => {
+    const report = await inspect(shipped('export class L {\n  wire() { const { on } = this.ctx\n'
+      + '    return on }\n}\n'))
+    expect(onlyCheck(report, 'C2').subject).toBe('binds `on` off `ctx` to a bare name')
+  })
+
+  it.each([
+    ['a member no Tier B check matches on its receiver', 'export const f = (ctx) => { const { logger } = ctx\n'
+      + '  return logger }\n'],
+    ['a member destructured off an ordinary options object', 'export const f = (options) => {\n'
+      + '  const { set, register } = options\n  return [set, register] }\n'],
+    ['a member read off an ordinary object', 'export const f = (emitter) => { const on = emitter.on\n'
+      + '  return on }\n'],
+    ['a quoted key, which no destructuring of the context needs', 'export const f = (ctx) => {\n'
+      + '  const { "provide": p } = ctx\n  return p }\n'],
+    ['a whole context bound to a second name', 'export const f = (ctx) => { const c = ctx\n  return c }\n'],
+    ['a declaration with no initializer at all', 'export function f() { let provide\n  return provide }\n'],
+    ['a function that is not the plugin entry point', 'export function build({ provide }) { return provide }\n'],
+    ['an entry point whose context is not destructured', 'export function apply(ctx) { return ctx }\n'],
+    ['an entry point taking no parameters', 'export function apply() { return null }\n'],
+    ['a function with no name to read', 'export default ({ provide }) => provide\n'],
+    ['a method whose name is itself computed', 'export const o = { ["ap" + "ply"]({ provide }) { return provide } }\n'],
+  ])('says nothing about %s', async (_what, source) => {
+    const report = await inspect(shipped(source))
+    expect(withCheck(report, 'C2')).toEqual([])
+    expect(report.analysis.negativesReliable).toBe(true)
   })
 })
 

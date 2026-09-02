@@ -7,8 +7,18 @@ real attack would: a patch layer that switches the approval row off, a `!!js` ex
 reaches `child_process`, a `postinstall`, a credential read paired with `fetch`, a `SKILL.md`
 written to be read by a model rather than a person, an MCP stdio row, an obfuscated bundle, a `!js`
 tag, a `dsh.bundle.patch` path that climbs out of its package, a `binding.gyp` whose build step is
-the payload, and a module whose every global is spelled with a Unicode escape. `benign-control/` is
-the opposite and must produce zero findings; a tool that fires on it is not worth reading.
+the payload, a module whose every global is spelled with a Unicode escape, and a module that
+reaches all three of its capabilities without spelling any of them the way a name table expects.
+`benign-control/` is the opposite and must produce zero findings; a tool that fires on it is not
+worth reading.
+
+`detached-dispatch/` is the one that is about the tool rather than about a reader.
+`process.getBuiltinModule('node:fs')` reaches a builtin with no import declaration, a specifier
+assembled out of two string literals is put back together before it is matched, and `provide`
+destructured off the context replaces the `approval` seam through a call that names no receiver.
+Two of the three are decidable and produce findings; the third is not, and the fixture's real
+assertion is that the report comes back **degraded** rather than clean — a false clean bill of
+health being worse than a missed finding, because the reader acts on it.
 
 `phantom-gyp/` and `escaped-identifiers/` are the two that are invisible to a reader checking the
 manifest. The first declares no lifecycle script at all: its install-time execution point is a file

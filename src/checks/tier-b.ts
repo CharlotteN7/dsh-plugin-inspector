@@ -24,6 +24,7 @@ import {
   UNMEDIATED_PROCESS_MODULES,
 } from '../knowledge.ts'
 import type { Finding, Severity } from '../model.ts'
+import { foldConstantString, isBuiltinModuleGetter } from '../syntax.ts'
 import type { CheckInput } from './input.ts'
 
 /** Global functions that fetch over the network without any `ctx` service. */
@@ -114,16 +115,18 @@ function tierB(finding: Omit<Finding, 'tier' | 'confidence' | 'examples' | 'occu
 }
 
 /**
- * The literal text of a string argument, or `null` when it is computed.
- * A computed argument is not a Tier B miss to paper over — it is a Tier C
- * signal, and `tier-c.ts` records it.
+ * The text a string argument holds, folding the constant forms — a `+` chain of
+ * literals, a template whose spans are literals, `[…].join(…)` over literals.
+ *
+ * Folding is bounded on purpose. An argument this cannot resolve is not a
+ * Tier B miss to paper over: it is a Tier C signal, and `tier-c.ts` records it
+ * by asking the same folder, so a site is either matched here or degraded
+ * there and never both.
  * @param node - the argument expression.
- * @returns the literal text, or `null`.
+ * @returns the text, or `null`.
  */
 function literalText(node: ts.Node | undefined): string | null {
-  if (node === undefined) return null
-  if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) return node.text
-  return null
+  return foldConstantString(node)
 }
 
 /**
@@ -135,25 +138,38 @@ function bareModule(specifier: string): string {
   return specifier.startsWith('node:') ? specifier.slice(5) : specifier
 }
 
+/** One module a file reaches, and the expression that reached it. */
+interface ModuleReference {
+  readonly specifier: string
+  readonly node: ts.Node
+  /** How the module was obtained, which decides how the finding names it. */
+  readonly via: 'import' | 'builtin-getter'
+}
+
 /**
- * Every module specifier the file imports or requires, as literal text.
+ * Every module the file reaches by a name this tool can resolve.
+ *
+ * Three ways in, not two. `import` and `require` are the declarations a reader
+ * looks for; `process.getBuiltinModule('node:fs')` is a third that needs
+ * neither, returns the same module object, and appears in no import list.
  * @param file - the parsed file.
- * @returns specifier text paired with the node it came from.
+ * @returns one entry per resolved reference.
  */
-function moduleSpecifiers(file: ParsedFile): { specifier: string, node: ts.Node }[] {
-  const found: { specifier: string, node: ts.Node }[] = []
+function moduleSpecifiers(file: ParsedFile): ModuleReference[] {
+  const found: ModuleReference[] = []
   const visit = (node: ts.Node): void => {
     if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier !== undefined) {
       const text = literalText(node.moduleSpecifier)
       /* v8 ignore next -- an import declaration only parses with a string-literal specifier. */
-      if (text !== null) found.push({ specifier: text, node })
+      if (text !== null) found.push({ specifier: text, node, via: 'import' })
     }
     if (ts.isCallExpression(node)) {
       const isRequire = ts.isIdentifier(node.expression) && node.expression.text === 'require'
       const isImport = node.expression.kind === ts.SyntaxKind.ImportKeyword
-      if (isRequire || isImport) {
+      const isBuiltin = isBuiltinModuleGetter(node)
+      if (isRequire || isImport || isBuiltin) {
         const text = literalText(node.arguments[0])
-        if (text !== null) found.push({ specifier: text, node })
+        if (text !== null) found.push({ specifier: text, node, via: isBuiltin ? 'builtin-getter' : 'import' })
       }
     }
     ts.forEachChild(node, visit)
@@ -176,9 +192,26 @@ function at(file: ParsedFile, node: ts.Node): Finding['evidence'] {
   }
 }
 
-/** B9, B7, B13 — what the file imports. */
+/**
+ * How a finding names the way a module was reached.
+ *
+ * `Imports` would be false of `process.getBuiltinModule('node:fs')`, and the
+ * difference is the point of covering it: the module arrives with no import
+ * declaration and no `require` for a reader to find.
+ * @param reference - the resolved module reference.
+ * @returns the opening clause of the finding's title.
+ */
+function reachedBy(reference: ModuleReference): string {
+  return reference.via === 'import'
+    ? `Imports \`${reference.specifier}\``
+    : `Loads \`${reference.specifier}\` through \`process.getBuiltinModule\``
+}
+
+/** B9, B7, B13 — what modules the file reaches. */
 function checkImports(file: ParsedFile, accumulator: Accumulator): void {
-  for (const { specifier, node } of moduleSpecifiers(file)) {
+  for (const reference of moduleSpecifiers(file)) {
+    const { specifier, node } = reference
+    const reached = reachedBy(reference)
     const bare = bareModule(specifier)
     const unmediated = UNMEDIATED_PROCESS_MODULES.get(bare)
     if (unmediated !== undefined) {
@@ -190,12 +223,13 @@ function checkImports(file: ParsedFile, accumulator: Accumulator): void {
         // reads a credential or reaches the network. On its own it is a
         // capability half the ecosystem has.
         severity: 'medium',
-        title: `Imports \`${specifier}\`, which ${unmediated}`,
+        title: `${reached}, which ${unmediated}`,
         detail: 'A mounted bundle layer is imported into the harness process at the agent\'s uid. The harness\'s own '
           + 'dynamic-package sandbox denies untrusted code `require` outright and redirects it to ctx services; a '
           + 'bundle layer gets no such restriction, so this import does exactly what the harness forbids elsewhere.',
         evidence: at(file, node),
-        bypass: 'a computed specifier — `await import(["node","child_process"].join(":"))` — is not matched, which is why C2 downgrades every Tier B negative',
+        bypass: 'a specifier this tool cannot fold to a constant — `import(name)` against a binding — which C2 '
+          + 'reports, so the negative degrades rather than passing quietly',
       }))
     }
     if (NETWORK_MODULES.has(bare)) {
@@ -204,11 +238,11 @@ function checkImports(file: ParsedFile, accumulator: Accumulator): void {
         name: 'network-egress',
         subject: specifier,
         severity: 'medium',
-        title: `Imports \`${specifier}\`, which can move bytes off the machine`,
+        title: `${reached}, which can move bytes off the machine`,
         detail: 'Network access is a capability, not a verdict: most plugins that reach the network do so for a '
           + 'declared reason. It is recorded because paired with a credential read it becomes B8.',
         evidence: at(file, node),
-        bypass: 'a computed specifier, or a transitive dependency doing the request on this package\'s behalf',
+        bypass: 'a transitive dependency doing the request on this package\'s behalf',
       })
       accumulator.findings.push(finding)
       accumulator.networkCall ??= finding
@@ -219,12 +253,12 @@ function checkImports(file: ParsedFile, accumulator: Accumulator): void {
         name: 'unmediated-filesystem',
         subject: specifier,
         severity: 'medium',
-        title: `Imports \`${specifier}\` rather than using the \`ctx.fs\` service`,
+        title: `${reached} rather than using the \`ctx.fs\` service`,
         detail: 'Reads and writes through the Node filesystem API are invisible to `fs/write-intent`, '
           + '`fs/edit-intent`, `fs/observed`, and the `fs-sandbox` row, so no policy in the profile sees them and '
           + 'nothing appears in the session log.',
         evidence: at(file, node),
-        bypass: 'a computed specifier, or `process.getBuiltinModule("node:fs")`',
+        bypass: 'a transitive dependency reading the file on this package\'s behalf',
       }))
     }
   }
@@ -248,7 +282,8 @@ function checkSeamReplacement(file: ParsedFile, node: ts.CallExpression, accumul
       + 'package\'s implementation for every consumer in the scope, and consumers cannot tell the difference.'
       + (critical ? ' This seam is one whose whole purpose is to constrain what the agent may do.' : ''),
     evidence: at(file, node),
-    bypass: "`ctx['pro' + 'vide']('approval', …)` — a computed member name is not matched",
+    bypass: "`ctx['pro' + 'vide']('approval', …)` — a computed member name is not matched — and neither is a "
+      + '`provide` destructured off `ctx` and called through the bare name. C2 reports both',
   }))
 }
 
@@ -386,7 +421,7 @@ function checkCredentialRead(file: ParsedFile, node: ts.Node, accumulator: Accum
     detail: 'Reading a credential is a capability, not a verdict — a plugin that authenticates to its own service '
       + 'must do it. It is recorded because paired with network access it becomes B8.',
     evidence: at(file, node),
-    bypass: 'a computed key — `process.env["API"+"_KEY"]` — or reading the whole `process.env` object and indexing it later',
+    bypass: 'a key this tool cannot fold to a constant, or reading the whole `process.env` object and indexing it later',
   })
   accumulator.findings.push(finding)
   accumulator.credentialRead ??= finding
@@ -474,9 +509,9 @@ function checkToolDescription(file: ParsedFile, node: ts.Node, accumulator: Accu
         + 'heuristic: it will miss a rephrasing, and it can fire on a description that legitimately discusses the '
         + 'subject.',
       evidence: { ...at(file, node), snippet: snippet(match.excerpt) },
-      bypass: 'any rephrasing the pattern does not cover, building the description by concatenation, or registering '
-        + 'the definition through a value this tool does not track — a definition exported from one file and passed '
-        + 'to `tools.register` in another is not matched',
+      bypass: 'any rephrasing the pattern does not cover, assembling the description out of anything this tool '
+        + 'cannot fold to a constant, or registering the definition through a value this tool does not track — a '
+        + 'definition exported from one file and passed to `tools.register` in another is not matched',
     }))
   }
 }

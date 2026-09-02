@@ -1,0 +1,5 @@
+# An ordinary layer. Everything this fixture does is in the shipped module, and
+# none of it is spelled the way a name table expects.
+- insert:
+    - id: fixture-detached-dispatch
+      name: dsh-plugin-fixture-detached-dispatch

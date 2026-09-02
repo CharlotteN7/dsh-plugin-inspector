@@ -7,9 +7,11 @@
  * user is entitled to see it.
  *
  * A Tier C hit also has a mechanical consequence. Tier B recognises a whitelist
- * of syntactic shapes, so when code is minified, when identifiers are computed,
- * or when the shipped artifact has no readable source, a Tier B *positive* is
- * still true but a Tier B *negative* means nothing. `inspect.ts` reads the
+ * of syntactic shapes — a member, on a receiver, taking a name it can resolve —
+ * so when code is minified, when a name is assembled out of something this tool
+ * cannot fold, when a member is detached from the receiver the checks match it
+ * on, or when the shipped artifact has no readable source, a Tier B *positive*
+ * is still true but a Tier B *negative* means nothing. `inspect.ts` reads the
  * output of this module to lower Tier B confidence and to forbid the report
  * from claiming nothing was found.
  * @module dsh-plugin-inspector/checks/tier-c
@@ -18,6 +20,7 @@
 import ts from 'typescript'
 import { lineColumn, snippet } from '../files.ts'
 import { MAX_EXAMPLES, type Evidence, type Finding } from '../model.ts'
+import { BUILTIN_MODULE_GETTER, foldConstantString, isBuiltinModuleGetter } from '../syntax.ts'
 import type { CheckInput } from './input.ts'
 
 /** A line longer than this is not written by hand. */
@@ -33,6 +36,47 @@ const DISPATCH_RECEIVERS: ReadonlySet<string> = new Set(['ctx', 'context', 'glob
 const NAMED_TARGET_CALLEES: ReadonlySet<string> = new Set([
   'on', 'once', 'provide', 'set', 'get', 'emit', 'waterfall', 'bail', 'parallel', 'serial',
 ])
+
+/**
+ * Members every Tier B check can only match *through* their receiver.
+ *
+ * B1 reads `<receiver>.provide` / `.set` / `.mixin`, B5 reads
+ * `<receiver>.on`, B11 reads `.plugin`, B10 reads `tools.register`, and B7,
+ * B9 and B13 read `process.getBuiltinModule`. Every one of them is a property
+ * access on a named receiver, so pulling the member off the receiver and
+ * binding it to a bare name removes the only thing those checks match on —
+ * while the call still does exactly what it did.
+ *
+ * This is not the assembled-name case. The name is right there in plain text;
+ * what is gone is the receiver, and following it to the call site is value
+ * tracking this tool does not do.
+ */
+const RECEIVER_ANCHORED_MEMBERS: ReadonlySet<string> = new Set([
+  'provide', 'set', 'mixin', 'on', 'plugin', 'register', BUILTIN_MODULE_GETTER,
+])
+
+/**
+ * Receivers whose members {@link RECEIVER_ANCHORED_MEMBERS} names.
+ *
+ * The plugin context, plus `process` — the receiver of `getBuiltinModule`. The
+ * guard is what keeps `const { set } = options` out of the check.
+ */
+const ANCHORED_RECEIVERS: ReadonlySet<string> = new Set([...DISPATCH_RECEIVERS, 'process'])
+
+/** The harness's plugin entry point, whose first parameter is the context. */
+const PLUGIN_ENTRY = 'apply'
+
+/** Why an unresolvable name makes every Tier B negative meaningless. */
+const ASSEMBLED_NAME_DETAIL = 'Every Tier B check matches a literal name. A name assembled at runtime defeats all of '
+  + 'them, so no Tier B negative for this package carries any information. A Tier B positive still does — the tool '
+  + 'saw what it saw.'
+
+/** Why a detached member makes every Tier B negative meaningless. */
+const DETACHED_MEMBER_DETAIL = 'Every Tier B check that matches this member matches it on its receiver: B1 reads '
+  + '`ctx.provide`, B5 reads `ctx.on`, B10 reads `tools.register`, B13 reads `process.getBuiltinModule`. Bound to a '
+  + 'bare name the member still does all of that, and the call site no longer says on what. Following the binding is '
+  + 'value tracking this tool does not do, so no Tier B negative for this package carries any information. A Tier B '
+  + 'positive still does — the tool saw what it saw.'
 
 /**
  * Build one Tier C finding. Confidence is `moderate`: these are heuristics
@@ -100,20 +144,18 @@ function checkMinification(files: readonly ParsedFile[]): Finding[] {
   return findings
 }
 
-/** C2 — names the analyzer cannot resolve without running the code. */
+/** C2 — names and receivers the analyzer cannot resolve without running the code. */
 function checkDynamicDispatch(files: readonly ParsedFile[]): Finding[] {
   const findings: Finding[] = []
   for (const { path, text, node: source } of files) {
-    const report = (node: ts.Node, what: string): void => {
+    const report = (node: ts.Node, what: string, why: string): void => {
       findings.push(tierC({
         checkId: 'C2',
         name: 'dynamic-dispatch',
         subject: what,
         severity: 'high',
         title: `Shipped source ${what}`,
-        detail: 'Every Tier B check matches a literal name. A name assembled at runtime defeats all of them, so no '
-          + 'Tier B negative for this package carries any information. A Tier B positive still does — the tool saw '
-          + 'what it saw.',
+        detail: why,
         evidence: {
           file: path,
           path: lineColumn(text, node.getStart(source)),
@@ -124,29 +166,39 @@ function checkDynamicDispatch(files: readonly ParsedFile[]): Finding[] {
     }
     const isComputed = (node: ts.Node | undefined): boolean =>
       node !== undefined && !ts.isStringLiteral(node) && !ts.isNoSubstitutionTemplateLiteral(node)
+    // A specifier Tier B folded to a constant is one Tier B matched, so it is
+    // not a gap. Only what the folder gives up on degrades the report.
+    const isUnresolvedSpecifier = (node: ts.Node | undefined): boolean =>
+      isComputed(node) && foldConstantString(node) === null
     const visit = (node: ts.Node): void => {
       if (ts.isElementAccessExpression(node) && ts.isIdentifier(node.expression)
         && DISPATCH_RECEIVERS.has(node.expression.text) && isComputed(node.argumentExpression)) {
-        report(node, `resolves a member of \`${node.expression.text}\` from a computed name`)
+        report(node, `resolves a member of \`${node.expression.text}\` from a computed name`, ASSEMBLED_NAME_DETAIL)
       }
+      if (ts.isVariableDeclaration(node)) reportDetachedBindings(node, report)
+      if (ts.isFunctionLike(node)) reportDetachedContextParameter(node, report)
       if (ts.isCallExpression(node)) {
         const callee = node.expression
         const isRequire = ts.isIdentifier(callee) && callee.text === 'require'
         const isImport = callee.kind === ts.SyntaxKind.ImportKeyword
-        if ((isRequire || isImport) && isComputed(node.arguments[0])) {
-          report(node, 'loads a module from a computed specifier')
+        if ((isRequire || isImport || isBuiltinModuleGetter(node)) && isUnresolvedSpecifier(node.arguments[0])) {
+          report(node, 'loads a module from a computed specifier', ASSEMBLED_NAME_DETAIL)
         }
         if (ts.isIdentifier(callee) && callee.text === 'atob') {
-          report(node, 'decodes a base64 string at runtime')
+          report(node, 'decodes a base64 string at runtime', ASSEMBLED_NAME_DETAIL)
         }
         if (ts.isPropertyAccessExpression(callee) && callee.name.text === 'from'
           && ts.isIdentifier(callee.expression) && callee.expression.text === 'Buffer'
           && (literalOf(node.arguments[1]) === 'base64' || literalOf(node.arguments[1]) === 'base64url')) {
-          report(node, 'decodes a base64 string at runtime')
+          report(node, 'decodes a base64 string at runtime', ASSEMBLED_NAME_DETAIL)
         }
         if (ts.isPropertyAccessExpression(callee) && NAMED_TARGET_CALLEES.has(callee.name.text)
           && isDispatchReceiver(callee.expression) && isAssembledName(node.arguments[0])) {
-          report(node, `passes an assembled name to \`${receiverName(callee.expression)}.${callee.name.text}()\``)
+          report(
+            node,
+            `passes an assembled name to \`${receiverName(callee.expression)}.${callee.name.text}()\``,
+            ASSEMBLED_NAME_DETAIL,
+          )
         }
       }
       ts.forEachChild(node, visit)
@@ -154,6 +206,87 @@ function checkDynamicDispatch(files: readonly ParsedFile[]): Finding[] {
     ts.forEachChild(source, visit)
   }
   return findings
+}
+
+/** How {@link checkDynamicDispatch} records one site. */
+type DispatchReport = (node: ts.Node, what: string, why: string) => void
+
+/**
+ * Report every {@link RECEIVER_ANCHORED_MEMBERS} member a binding pattern pulls
+ * out of a known receiver.
+ *
+ * A computed property in the pattern — `const { [name]: fn } = ctx` — is
+ * `ctx[name]` written as a destructuring, and is recorded as that same finding
+ * so the two spellings aggregate together.
+ * @param pattern - the binding pattern.
+ * @param receiver - how the finding names the object being destructured.
+ * @param report - the reporter.
+ */
+function reportPatternMembers(pattern: ts.ObjectBindingPattern, receiver: string, report: DispatchReport): void {
+  for (const element of pattern.elements) {
+    const property = element.propertyName ?? element.name
+    if (ts.isComputedPropertyName(property)) {
+      report(element, `resolves a member of ${receiver} from a computed name`, ASSEMBLED_NAME_DETAIL)
+      continue
+    }
+    if (!ts.isIdentifier(property) || !RECEIVER_ANCHORED_MEMBERS.has(property.text)) continue
+    report(element, `binds \`${property.text}\` off ${receiver} to a bare name`, DETACHED_MEMBER_DETAIL)
+  }
+}
+
+/**
+ * Whether an expression names a receiver whose members Tier B matches by name.
+ * @param node - the expression.
+ * @returns the receiver's own name, or `null`.
+ */
+function anchoredReceiver(node: ts.Expression | undefined): string | null {
+  if (node === undefined) return null
+  if (ts.isIdentifier(node) && ANCHORED_RECEIVERS.has(node.text)) return node.text
+  // `this.ctx` and `self.ctx` are the same receiver held on a field.
+  if (ts.isPropertyAccessExpression(node) && DISPATCH_RECEIVERS.has(node.name.text)) return node.name.text
+  return null
+}
+
+/**
+ * C2 — a variable declaration that detaches an anchored member from its
+ * receiver, in either spelling: `const { provide } = ctx`, or
+ * `const provide = ctx.provide`.
+ * @param node - the variable declaration.
+ * @param report - the reporter.
+ */
+function reportDetachedBindings(node: ts.VariableDeclaration, report: DispatchReport): void {
+  const source = anchoredReceiver(node.initializer)
+  if (source !== null && ts.isObjectBindingPattern(node.name)) {
+    reportPatternMembers(node.name, `\`${source}\``, report)
+    return
+  }
+  const initializer = node.initializer
+  if (initializer === undefined || !ts.isPropertyAccessExpression(initializer)) return
+  const receiver = anchoredReceiver(initializer.expression)
+  if (receiver === null || !RECEIVER_ANCHORED_MEMBERS.has(initializer.name.text)) return
+  report(
+    node,
+    `binds \`${initializer.name.text}\` off \`${receiver}\` to a bare name`,
+    DETACHED_MEMBER_DETAIL,
+  )
+}
+
+/**
+ * C2 — a plugin entry point that destructures its context parameter:
+ * `export function apply({ provide }) { … }`.
+ *
+ * The receiver is known here without any binding to follow: `apply`'s first
+ * parameter is the plugin context by the harness's own mount contract, which is
+ * what keeps this off every other function that destructures an options object.
+ * @param node - the function-like declaration.
+ * @param report - the reporter.
+ */
+function reportDetachedContextParameter(node: ts.SignatureDeclaration, report: DispatchReport): void {
+  const name = node.name
+  if (name === undefined || !ts.isIdentifier(name) || name.text !== PLUGIN_ENTRY) return
+  const first = node.parameters[0]
+  if (first === undefined || !ts.isObjectBindingPattern(first.name)) return
+  reportPatternMembers(first.name, 'the plugin context', report)
 }
 
 /**
@@ -189,15 +322,20 @@ function receiverName(node: ts.Expression): string {
 }
 
 /**
- * Whether a node builds a string at runtime rather than naming one. A plain
- * identifier is deliberately excluded: `ctx.on(EVENT_NAME, …)` against a module
- * constant is ordinary code, and treating it as evasion would degrade the
+ * Whether a node builds a string at runtime rather than naming one, and does it
+ * in a way the constant folder could not follow.
+ *
+ * A plain identifier is deliberately excluded: `ctx.on(EVENT_NAME, …)` against a
+ * module constant is ordinary code, and treating it as evasion would degrade the
  * analysis of nearly every well-written plugin.
  * @param node - the argument node.
- * @returns true for concatenation, an interpolated template, or a call.
+ * @returns true for an unfoldable concatenation, template, or call.
  */
 function isAssembledName(node: ts.Node | undefined): boolean {
   if (node === undefined) return false
+  // A name Tier B folded to a constant is a name Tier B matched. Reporting it
+  // here as well would degrade the whole report over a site that was read.
+  if (foldConstantString(node) !== null) return false
   if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.PlusToken) return true
   if (ts.isTemplateExpression(node)) return true
   return ts.isCallExpression(node)

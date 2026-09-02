@@ -295,6 +295,31 @@ describe('an obfuscated package', () => {
   })
 })
 
+describe('a package that reaches every capability without naming it the usual way', () => {
+  it('reports the two capabilities whose names it can still resolve', async () => {
+    const report = await inspect(fixture('detached-dispatch'))
+    // Neither module arrives through an `import` or a `require`. One is named
+    // outright in a `process.getBuiltinModule` call, the other is assembled
+    // from two halves the folder puts back together.
+    expect(onlyCheck(report, 'B13').subject).toBe('node:fs')
+    expect(onlyCheck(report, 'B13').title).toContain('process.getBuiltinModule')
+    expect(onlyCheck(report, 'B9').subject).toBe('node:child_process')
+  })
+
+  it('refuses to call its negatives reliable over the seam call it cannot follow', async () => {
+    // The `approval` seam is replaced through a `provide` destructured off the
+    // context, so B1 has no receiver to match and does not fire. A report that
+    // said nothing at all here would be a false clean bill of health, which is
+    // worse than a missed finding because the reader acts on it.
+    const report = await inspect(fixture('detached-dispatch'))
+    expect(withCheck(report, 'B1')).toEqual([])
+    expect(report.analysis.integrity).toBe('degraded')
+    expect(report.analysis.negativesReliable).toBe(false)
+    expect(report.analysis.degradedBy).toEqual(['C2'])
+    expect(onlyCheck(report, 'C2').subject).toBe('binds `provide` off `ctx` to a bare name')
+  })
+})
+
 describe('a package whose install-time execution is in binding.gyp', () => {
   it('reports the build declaration although no entry the manifest names reaches it', async () => {
     const report = await inspect(fixture('phantom-gyp'))
