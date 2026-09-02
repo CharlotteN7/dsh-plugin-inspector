@@ -1,0 +1,50 @@
+name: Harness table sync
+
+# Deliberately not part of CI, for the same reason the ecosystem sweep is not:
+# every job in `ci.yml` runs without a network, and that is what lets the unit
+# suite claim that analysing a package touches nothing outside the process.
+# This one reads four published harness packages, so it runs on its own
+# schedule and on request.
+#
+# It fails when `src/knowledge.ts` and the harness release disagree. Every
+# Tier A verdict is a claim about what one harness version does with a
+# declaration: a core row that no longer exists is a verdict about nothing, and
+# a security seam the catalogue has gained is a miss that reads as a clean
+# report. `HARNESS_REFERENCE` says which version the tables describe, and this
+# is what makes that claim checkable rather than remembered.
+on:
+  schedule:
+    # Weekly, the morning after the ecosystem sweep, so two red workflows on
+    # one day are never each other's cause.
+    - cron: '0 6 * * 2'
+  workflow_dispatch:
+    inputs:
+      release:
+        description: 'Harness version or dist-tag to diff against. Defaults to the CLI `latest`.'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: true
+
+jobs:
+  tables:
+    name: diff the knowledge tables against a published release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: corepack enable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.19.0'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: Diff
+        run: |
+          node --experimental-strip-types scripts/harness-sync.ts \
+            ${{ inputs.release && format('--release {0}', inputs.release) || '' }}

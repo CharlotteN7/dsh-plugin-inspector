@@ -100,13 +100,14 @@ pnpm run test:coverage
 pnpm run test:e2e
 ```
 
-Severity calibration is pinned against a corpus of forty published packages, in
-`tests/ecosystem-baseline.json`. **The sweep is not part of CI** — every other workflow here runs
-without a network, which is what lets the unit suite claim that analysing a package touches nothing
-outside the process — so it runs as a weekly cron and on request, and a change that starts firing
-on ordinary code does not fail the pull request that makes it. What catches it is the release: the
-baseline records the build that measured it and a unit test fails unless that matches the version
-in `package.json`, so a version bump is not finished until the sweep has been re-run against it.
+Two checks need a network and are therefore **not part of CI**, which is what lets the unit suite
+claim that analysing a package touches nothing outside the process. Both run on a weekly cron and
+on request. `pnpm run sweep` measures severity calibration against a corpus of forty published
+packages, pinned in `tests/ecosystem-baseline.json`; the baseline records the build that measured
+it and a unit test fails unless that matches the version in `package.json`, so a version bump is
+not finished until the sweep has been re-run against it. `pnpm run sync` diffs the harness ground
+truth in `src/knowledge.ts` against a published harness release, because every Tier A verdict is a
+claim about what one harness version does with a declaration.
 
 Design decisions and their rationale live in [ADR.md](ADR.md). Security policy is in
 [SECURITY.md](SECURITY.md).
