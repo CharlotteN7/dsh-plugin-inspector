@@ -8,6 +8,7 @@
  * @module dsh-plugin-inspector/checks/input
  */
 
+import type { ProvenanceFact } from '../attestation.ts'
 import type { PatchDocument, PatchParseError } from '../cordis-yaml.ts'
 import type { PackageManifest } from '../manifest.ts'
 import type { PluginSource } from '../source.ts'
@@ -41,4 +42,10 @@ export interface CheckInput {
   readonly sourceFiles: readonly string[]
   /** Package-relative paths of shipped skill and agent-instruction markdown. */
   readonly modelVisibleFiles: readonly string[]
+  /**
+   * What the registry published about this tarball's build origin. Carries
+   * state `unavailable` on the two modes that read local bytes, which forbids
+   * every provenance verdict — see `runTierA`.
+   */
+  readonly provenance: ProvenanceFact
 }

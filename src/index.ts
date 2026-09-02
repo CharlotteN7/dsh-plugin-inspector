@@ -13,9 +13,26 @@
  */
 
 export { analyze, exceedsThreshold, inspect, TOOL_NAME, TOOL_VERSION } from './inspect.ts'
+export {
+  MAX_ATTESTATION_BYTES,
+  packageUrl,
+  PROVENANCE_PREDICATE_TYPE,
+  provenanceAbsent,
+  provenanceUnavailable,
+  provenanceUnreadable,
+  readProvenance,
+  type ProvenanceCheck,
+  type ProvenanceCheckName,
+  type ProvenanceFact,
+  type ProvenanceGap,
+  type ProvenanceState,
+  type ProvenanceSubject,
+} from './attestation.ts'
 export { inspectFromNpm, precheck } from './npm.ts'
 export {
+  attestationUrl,
   DEFAULT_REGISTRY,
+  fetchAttestation,
   fetchVerifiedTarball,
   parseSpec,
   RegistryError,

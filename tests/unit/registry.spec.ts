@@ -120,7 +120,7 @@ describe('verifying downloaded bytes', () => {
   const base: ResolvedPackage = {
     name: 'p', version: '1.0.0', tarball: `${REGISTRY}/p/-/p-1.0.0.tgz`,
     integrity: null, shasum: null, hasInstallScript: false,
-    lifecycleScripts: [], bundlePatch: null, metadataBytes: 0,
+    lifecycleScripts: [], bundlePatch: null, provenancePredicateType: null, metadataBytes: 0,
   }
 
   it('accepts bytes whose digest is the one the registry published', () => {

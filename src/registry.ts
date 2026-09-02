@@ -20,6 +20,7 @@
  */
 
 import { createHash, type BinaryLike } from 'node:crypto'
+import { MAX_ATTESTATION_BYTES } from './attestation.ts'
 import { INSTALL_LIFECYCLE_SCRIPTS } from './knowledge.ts'
 import { MAX_TOTAL_BYTES } from './source.ts'
 
@@ -76,6 +77,13 @@ export interface ResolvedPackage {
   readonly lifecycleScripts: readonly string[]
   /** The `dsh.bundle.patch` value, which is what makes a package a mounted layer. */
   readonly bundlePatch: string | null
+  /**
+   * The predicate type of the provenance attestation the registry says it
+   * holds for this version, from `dist.attestations.provenance`, or `null` when
+   * it says it holds none. Reading it here is what keeps the attestation
+   * endpoint unasked for the majority of packages that have no attestation.
+   */
+  readonly provenancePredicateType: string | null
   /** Bytes of metadata read to learn all of the above. */
   readonly metadataBytes: number
 }
@@ -196,6 +204,7 @@ export async function resolvePackage(spec: PackageSpec, options: RegistryOptions
     integrity: typeof dist.integrity === 'string' ? dist.integrity : null,
     shasum: typeof dist.shasum === 'string' ? dist.shasum : null,
     hasInstallScript: record.hasInstallScript === true,
+    provenancePredicateType: asString(asRecord(asRecord(dist.attestations).provenance), 'predicateType'),
     lifecycleScripts: INSTALL_LIFECYCLE_SCRIPTS.filter(name => typeof scripts[name] === 'string'),
     bundlePatch: typeof bundle.patch === 'string' ? bundle.patch : null,
     metadataBytes: body.byteLength,
@@ -212,6 +221,17 @@ function asRecord(value: unknown): Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
     ? value as Record<string, unknown>
     : {}
+}
+
+/**
+ * Read a string field, or `null` when it is absent or of another type.
+ * @param record - the containing record.
+ * @param key - the field name.
+ * @returns the string, or `null`.
+ */
+function asString(record: Record<string, unknown>, key: string): string | null {
+  const value = record[key]
+  return typeof value === 'string' ? value : null
 }
 
 /**
@@ -322,4 +342,46 @@ export async function fetchVerifiedTarball(
   const response = await get(resolved.tarball, 'application/octet-stream', options)
   const bytes = await readCapped(response, MAX_TARBALL_BYTES, `tarball ${resolved.tarball}`)
   return verifyIntegrity(bytes, resolved)
+}
+
+/**
+ * The endpoint an npm-compatible registry serves a version's attestation
+ * bundle from.
+ *
+ * Built from the registry base URL rather than read out of
+ * `dist.attestations.url`, which is the opposite of how the tarball URL is
+ * handled and is deliberate: the tarball has to come from wherever the registry
+ * says because there is no other way to name it, so that URL is taken from the
+ * document and then refused unless it is same-origin. An attestation needs no
+ * such freedom. Constructing the path here means a doctored packument cannot
+ * redirect the request at all, not even to another path on the same host.
+ *
+ * The name and version are re-validated because both come out of the version
+ * document, which is registry-controlled: `name` is not necessarily the name
+ * that was asked for, and it is interpolated into a URL.
+ * @param registry - the registry base URL, without a trailing slash.
+ * @param name - the resolved package name.
+ * @param version - the resolved version.
+ * @returns the absolute URL.
+ * @throws RegistryError when the document's name or version would not address this endpoint.
+ */
+export function attestationUrl(registry: string, name: string, version: string): string {
+  if (!PACKAGE_NAME.test(name)) throw new RegistryError(`the version document names no npm package: ${name}`)
+  if (!VERSION_OR_TAG.test(version)) throw new RegistryError(`the version document names no version: ${version}`)
+  return `${registry}/-/npm/v1/attestations/${name}@${version}`
+}
+
+/**
+ * Download an attestation document.
+ *
+ * Only ever called when the version document said there is one, so a package
+ * without provenance costs no request at all.
+ * @param url - the endpoint, from {@link attestationUrl}.
+ * @param options - where to fetch from.
+ * @returns the document as served.
+ * @throws RegistryError on a transport failure, a non-2xx status, or an oversized body.
+ */
+export async function fetchAttestation(url: string, options: RegistryOptions = {}): Promise<Buffer> {
+  const response = await get(url, 'application/json', options)
+  return readCapped(response, MAX_ATTESTATION_BYTES, 'attestation document')
 }

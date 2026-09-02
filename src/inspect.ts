@@ -11,6 +11,7 @@
  */
 
 import { readFileSync } from 'node:fs'
+import { provenanceUnavailable, type ProvenanceFact } from './attestation.ts'
 import {
   EXPRESSION_CLASSES,
   PatchParseError,
@@ -123,11 +124,15 @@ export async function inspect(target: string): Promise<Report> {
 /**
  * Run every check over an already-decoded package.
  * @param source - the decoded package.
- * @param registry - provenance, when the bytes were fetched from a registry.
+ * @param registry - where the bytes came from, when they were fetched from a registry.
+ * @param provenance - what the registry's attestation said and what was checked
+ * of it; defaults to the `unavailable` fact the two local modes carry.
  * @returns the complete report.
  * @throws ManifestError when the manifest cannot be read.
  */
-export function analyze(source: PluginSource, registry?: RegistryProvenance): Report {
+export function analyze(
+  source: PluginSource, registry?: RegistryProvenance, provenance: ProvenanceFact = provenanceUnavailable(),
+): Report {
   const manifest = parseManifest(source.files.get('package.json') ?? '')
   const declared = manifest.dsh.bundle?.patch
   const mountsAsBundle = declared !== undefined
@@ -159,6 +164,7 @@ export function analyze(source: PluginSource, registry?: RegistryProvenance): Re
     unmountedPatchFiles: others,
     sourceFiles,
     modelVisibleFiles,
+    provenance,
   }
 
   const tierC = runTierC(input)
@@ -178,6 +184,7 @@ export function analyze(source: PluginSource, registry?: RegistryProvenance): Re
     packageName: manifest.name,
     packageVersion: manifest.version,
     license: manifest.license,
+    provenance,
     mountsAsBundle,
     bundlePatchPath: declared ?? null,
     shipsClientBundle: manifest.dsh.client !== undefined && manifest.exportPaths.includes('./client'),

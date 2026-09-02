@@ -16,6 +16,7 @@ import { inspect } from '../../src/inspect.ts'
 import { runTierA } from '../../src/checks/tier-a.ts'
 import type { CheckInput } from '../../src/checks/input.ts'
 import { parsePatchDocument } from '../../src/cordis-yaml.ts'
+import { provenanceUnavailable } from '../../src/attestation.ts'
 import { parseManifest } from '../../src/manifest.ts'
 import { loadSource } from '../../src/source.ts'
 import { cleanupPackages, createPackage, packExactly } from './package-fixture.ts'
@@ -58,6 +59,7 @@ describe('a package that mounts nothing', () => {
       unmountedPatchFiles: [],
       sourceFiles: [],
       modelVisibleFiles: [],
+      provenance: provenanceUnavailable(),
     } satisfies CheckInput
     expect(runTierA(input).filter(finding => finding.checkId === 'A2')).toEqual([])
     expect(runTierA({ ...input, mountsAsBundle: true }).filter(finding => finding.checkId === 'A2')).toHaveLength(1)

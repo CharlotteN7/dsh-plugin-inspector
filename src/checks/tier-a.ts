@@ -752,6 +752,46 @@ function checkInjectionText(input: CheckInput): Finding[] {
 }
 
 /**
+ * A25 — a provenance attestation that does not check out.
+ *
+ * Only a `failed` fact reaches here, and `failed` means the registry published
+ * an attestation for these bytes and one of the checks in `attestation.ts`
+ * contradicted it. That is a narrow claim on purpose:
+ *
+ * - **Absence is not this finding, and no severity fires on it.** 28 of the 40
+ *   packages in the pinned corpus publish no attestation at all. A finding on
+ *   the majority of legitimate packages is the miscalibration the 0.2 release
+ *   existed to remove, so absence is reported as a fact and nothing else.
+ * - **This is not an attack detector.** A publisher who wants no provenance
+ *   simply publishes none, which produces no finding, so nothing here can be
+ *   evaded by making it fail. What it catches is an attestation that is real
+ *   and does not describe this download: the wrong artifact, a mirror serving
+ *   one version's bundle for another, or a payload edited after signing.
+ * - It is Tier A because it is decidable. The comparisons are digests and a
+ *   signature over bytes already in hand, with no heuristic anywhere in them.
+ */
+function checkProvenance(input: CheckInput): Finding[] {
+  const { provenance } = input
+  if (provenance.state !== 'failed') return []
+  const failed = provenance.checks.filter(check => !check.passed)
+  return failed.map(check => tierA({
+    checkId: 'A25',
+    name: 'provenance-mismatch',
+    subject: check.name,
+    severity: 'high',
+    title: `Provenance attestation fails its \`${check.name}\` check`,
+    detail: `The registry published a build provenance attestation for this version and it does not hold: `
+      + `${check.detail}. The attestation is at ${provenance.attestationUrl}. `
+      + 'A published attestation that does not describe the downloaded artifact is worth more attention than no '
+      + 'attestation at all, because a reader who saw the badge and not this line would conclude the opposite. '
+      + 'What this does NOT establish is that the signing certificate is genuinely Sigstore\'s: that needs a '
+      + 'trust root this tool does not carry, so a registry that serves a doctored bundle can make every other '
+      + 'check pass.',
+    evidence: { file: 'dist.attestations', path: check.name },
+  }))
+}
+
+/**
  * Run every Tier A check.
  *
  * The filter is the guard: a package that declares no `dsh.bundle.patch`
@@ -775,6 +815,7 @@ export function runTierA(input: CheckInput): Finding[] {
     ...checkServiceRemapping(input),
     ...checkModelVisibleText(input),
     ...checkInjectionText(input),
+    ...checkProvenance(input),
   ]
   if (input.mountsAsBundle) return findings
   return findings.filter(finding => !PATCH_ROW_CHECKS.has(finding.checkId))

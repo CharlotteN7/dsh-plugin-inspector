@@ -9,6 +9,7 @@
  * @module dsh-plugin-inspector/report
  */
 
+import type { ProvenanceFact, ProvenanceGap } from './attestation.ts'
 import { SEVERITIES, type Finding, type Report, type Severity } from './model.ts'
 
 /** ANSI colour per severity, and the reset. */
@@ -20,6 +21,18 @@ const COLOR: Readonly<Record<Severity | 'reset' | 'dim' | 'bold', string>> = {
   dim: '\u001b[2m',
   bold: '\u001b[1m',
   reset: '\u001b[0m',
+}
+
+/** Indent that lines a wrapped fact value up under the first one. */
+const CONTINUATION = `\n${' '.repeat(18)}`
+
+/** What each unchecked claim means, spelled out rather than left as a key. */
+const GAP_MEANING: Readonly<Record<ProvenanceGap, string>> = {
+  'certificate-chain': 'that the signing certificate is Sigstore\'s — this tool carries no trust root, so a '
+    + 'registry serving a doctored bundle passes every check above',
+  'transparency-log': 'the Rekor transparency-log inclusion proof in the bundle, which needs the same trust root',
+  'builder-identity': 'the signer identity, because the statement names no GitHub Actions workflow to compare the '
+    + 'certificate against',
 }
 
 /** How the human report labels each severity. */
@@ -125,6 +138,47 @@ function describeFileSet(facts: Report['facts']): string {
 }
 
 /**
+ * Say what the registry attested about this tarball's build origin, and — with
+ * equal prominence — what of that was checked here and what was not.
+ *
+ * The report is not allowed to let a reader mistake one for the other. "The
+ * registry told me a claim exists" and "I checked the claim" are different
+ * statements, and the second is only partly true: the digest, the package
+ * name, the DSSE signature and the certificate's own identity are checked, and
+ * whether the certificate belongs to Sigstore is not. So the `not checked` row
+ * is printed whenever the `checked` row is, never as a footnote and never
+ * conditionally.
+ * @param provenance - the fact.
+ * @returns the rows to print.
+ */
+function renderProvenance(provenance: ProvenanceFact): [string, string][] {
+  if (provenance.state === 'unavailable') {
+    return [['provenance', `not readable here — ${provenance.reason}`]]
+  }
+  if (provenance.state === 'absent') {
+    return [['provenance',
+      'none — the registry published no build provenance for this version, which most published packages do not']]
+  }
+  if (provenance.state === 'unreadable') {
+    return [['provenance', `the registry says this version has one and it could not be read — ${provenance.reason}`]]
+  }
+  const origin = `${provenance.sourceRepository ?? 'an unnamed repository'}`
+    + `${provenance.sourceCommit === null ? '' : ` @ ${provenance.sourceCommit}`}`
+    + `${provenance.sourceRef === null ? '' : ` (${provenance.sourceRef})`}`
+  return [
+    ['provenance', provenance.state === 'attested'
+      ? `attested to ${origin}`
+      : `ATTESTED TO ${origin}, AND THE ATTESTATION DOES NOT CHECK OUT`],
+    ['built by', `${provenance.workflow ?? 'an unnamed workflow'}`
+      + `${provenance.builder === null ? '' : ` on ${provenance.builder}`}`],
+    ['checked', provenance.checks
+      .map(check => `${check.passed ? 'ok  ' : 'FAIL'} ${check.name} — ${check.detail}`)
+      .join(CONTINUATION)],
+    ['not checked', provenance.notChecked.map(gap => GAP_MEANING[gap]).join(CONTINUATION)],
+  ]
+}
+
+/**
  * Render the "what does this plugin do" section, which is printed whether or
  * not there are findings.
  * @param report - the report.
@@ -133,23 +187,24 @@ function describeFileSet(facts: Report['facts']): string {
  */
 function renderFacts(report: Report, paint: (code: string, text: string) => string): string[] {
   const { facts } = report
-  const provenance = report.target.registry
+  const registry = report.target.registry
   const rows: [string, string][] = [
     ['package', `${facts.packageName}@${facts.packageVersion}${facts.license === null ? '' : ` (${facts.license})`}`],
     ['read from', `${report.target.kind} ${report.target.path}`],
-    ...provenance === undefined
+    ...registry === undefined
       ? []
       : [
-          ['fetched from', `${provenance.tarball} (${provenance.tarballBytes} bytes, never written to disk)`] as [string, string],
+          ['fetched from', `${registry.tarball} (${registry.tarballBytes} bytes, never written to disk)`] as [string, string],
           // Which field matched is not cosmetic: `dist.shasum` is SHA-1 and is
           // only reached on packages published before npm 5, so naming
           // `dist.integrity` there would report a stronger check than ran.
-          ['verified', `${provenance.digest} matched `
-            + `${provenance.algorithm === 'sha1' ? 'dist.shasum' : 'dist.integrity'} before anything parsed it`] as [string, string],
-          ['install script', provenance.hasInstallScript
+          ['verified', `${registry.digest} matched `
+            + `${registry.algorithm === 'sha1' ? 'dist.shasum' : 'dist.integrity'} before anything parsed it`] as [string, string],
+          ['install script', registry.hasInstallScript
             ? 'yes — the registry marks this package as running one at install time'
             : 'no — the registry does not mark this package as running one'] as [string, string],
         ],
+    ...renderProvenance(facts.provenance),
     /* v8 ignore start -- `mountsAsBundle` is true exactly when the manifest declared a path. */
     ['mounted layer', facts.mountsAsBundle
       ? `yes — dsh.bundle.patch = ${facts.bundlePatchPath ?? '?'} (imported into the harness process at the agent's uid)`
@@ -158,7 +213,7 @@ function renderFacts(report: Report, paint: (code: string, text: string) => stri
     ['browser bundle', facts.shipsClientBundle ? 'yes — dsh.client with an ./client export, executed in the user\'s browser' : 'no'],
     ['rows inserted', facts.insertedRows.length === 0
       ? 'none'
-      : facts.insertedRows.map(row => `${row.id}${row.name === undefined ? '' : ` → ${row.name}`}`).join('\n                ')],
+      : facts.insertedRows.map(row => `${row.id}${row.name === undefined ? '' : ` → ${row.name}`}`).join(CONTINUATION)],
     ['rows modified', facts.targetedRows.length === 0 ? 'none' : facts.targetedRows.join(', ')],
     ['!!js in layer', describeExpressions(facts.jsExpressions)],
     ['other layers', facts.unmountedPatchFiles.length === 0

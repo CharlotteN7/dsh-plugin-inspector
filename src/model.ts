@@ -10,6 +10,8 @@
  * @module dsh-plugin-inspector/model
  */
 
+import type { ProvenanceFact } from './attestation.ts'
+
 /** How much a finding should weigh on an install decision. */
 export type Severity = 'critical' | 'high' | 'medium' | 'low'
 
@@ -36,7 +38,11 @@ export const SEVERITIES: readonly Severity[] = ['critical', 'high', 'medium', 'l
 
 /** Where in the analysed package a finding was observed. */
 export interface Evidence {
-  /** Package-relative path of the file the finding came from. */
+  /**
+   * Package-relative path of the file the finding came from, or the name of the
+   * registry field it came from when the finding is about what the registry
+   * published rather than about the package contents.
+   */
   readonly file: string
   /** A locator inside that file: a YAML path, a JSON pointer, or `line:column`. */
   readonly path?: string
@@ -108,6 +114,13 @@ export interface Facts {
   readonly packageName: string
   readonly packageVersion: string
   readonly license: string | null
+  /**
+   * What the registry says about where this tarball was built, and which of
+   * those claims this run checked. Always present: the two modes that read
+   * local bytes report `unavailable`, which is a different answer from a
+   * published package that has no attestation.
+   */
+  readonly provenance: ProvenanceFact
   /** True when `package.json` declares `dsh.bundle.patch` — a mounted patch layer. */
   readonly mountsAsBundle: boolean
   /** The declared patch path, verbatim and unresolved, or `null`. */
