@@ -45,7 +45,8 @@ node lib/cli.js --help
 dsh-inspect <target> [options]
 dsh-inspect --from-npm <name>[@<version>] [options]
 
-  --from-npm <spec>       Fetch from the registry, verify dist.integrity, analyse in memory.
+  --from-npm <spec>       Fetch from the registry, verify dist.integrity, read the
+                          provenance attestation if there is one, analyse in memory.
   --registry <url>        Registry base URL for --from-npm.
   --json                  Emit the machine-readable JSON document on stdout.
   --fail-on <severity>    Exit 1 at or above this severity.  (default: high)

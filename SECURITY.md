@@ -29,6 +29,20 @@ security bugs and are treated as such:
   `dist.tarball` origin against the registry base URL and throws before any download, so a single
   doctored packument on an honest registry cannot make this tool fetch an arbitrary URL. A build
   where that refusal is missing is the bug.
+
+  `--from-npm` makes at most three requests, all to the registry it was given: the version
+  document, the tarball, and — only when the version document says the version has a provenance
+  attestation — `<registry>/-/npm/v1/attestations/<name>@<version>`. That third URL is **built from
+  the registry base URL, not read out of `dist.attestations.url`**, so unlike the tarball URL it
+  cannot be redirected by a doctored packument even to another path on the same host; the name and
+  version interpolated into it are re-validated because both come out of a registry-controlled
+  document. A build that follows the URL the document supplies is the bug.
+- **Reporting an unchecked claim as a checked one.** The provenance fact separates what the
+  registry asserted from what this tool established, and names the two things it does not establish
+  — that the signing certificate is Sigstore's, and the transparency-log inclusion proof. A build
+  that prints the checks without the gaps, or that reports `attested` on a bundle whose subject
+  digest is not the analysed tarball's, is a security bug in the same sense a false clean bill is.
+
 - **Analysing bytes whose hash does not match what the registry published.** On the `--from-npm`
   path `dist.integrity` is verified before any byte reaches the parser. A mismatch that produces a
   report instead of a refusal is a security bug.

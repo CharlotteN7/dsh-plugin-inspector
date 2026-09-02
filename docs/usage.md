@@ -15,7 +15,8 @@ dsh-inspect --from-npm <name>[@<version>] [options]
 
 Options
   --from-npm <spec>       Fetch a published package from the registry, verify its
-                          dist.integrity hash, and analyse it in memory.
+                          dist.integrity hash, read its provenance attestation
+                          if it has one, and analyse it in memory.
   --registry <url>        Registry base URL for --from-npm.
                           (default: https://registry.npmjs.org)
   --json                  Emit the machine-readable JSON document on stdout.
@@ -56,6 +57,23 @@ combined with a local target, and a directory or tarball scan can never reach it
 in a module the analysis path does not import. **A network fetch is not execution.** No subprocess,
 no disk write, no lifecycle script, and no `npm pack`. The report records the tarball URL, the
 digest that matched, and the registry's own `hasInstallScript` flag under `target.registry`.
+
+### Provenance, and the line between a claim and a check
+
+When the version document says the version has an npm **provenance attestation**, `--from-npm`
+makes one more request — to `<registry>/-/npm/v1/attestations/<name>@<version>`, on the registry
+you gave it — and reports the source repository, commit, ref and workflow the signed statement
+names. Most published packages have none; 28 of the 40 in the pinned corpus do, so an absence is
+reported as a fact and raises nothing.
+
+The report is explicit about which half you are reading. It prints a `checked` block — the
+statement covers the exact bytes that were downloaded, it is about this package at this version,
+its DSSE signature verifies under the certificate in the bundle, and that certificate names the
+workflow the statement claims — and, always alongside it, a `not checked` block: **this tool
+carries no Sigstore trust root**, so it does not establish that the certificate is Fulcio's or
+check the Rekor inclusion proof. A registry serving a doctored bundle passes everything above. See
+[the check catalogue](checks.html#what-the-provenance-fact-says-and-what-it-does-not) for what
+provenance does not prove even when it is fully verified.
 
 If the hash does not match what the registry published, the tool refuses and parses nothing. If the
 package predates `dist.integrity` entirely, the weaker `dist.shasum` is used and the report says

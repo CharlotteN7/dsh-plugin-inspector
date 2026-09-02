@@ -657,3 +657,63 @@ as a promise about all of Tier B and it was never that.
 **Measured.** The pinned 40-package corpus produces a byte-identical distribution before and after
 — 295 findings, 3 critical, 80 high, median 5.5, 21 of 40 carrying a high or critical. None of the
 three spellings appears in a legitimate published plugin, which is the reason to report them.
+
+---
+
+## 24. Provenance is a fact; the report separates what npm asserted from what was checked
+
+**Decision.** `--from-npm` reads npm's build provenance attestation when the version document says
+there is one, and emits it as a **Fact** in five states — `unavailable` for a directory or local
+tarball, `absent`, `unreadable`, `attested`, `failed`. Four checks run offline against bytes already
+in hand: the statement's subject digest is the SHA-512 of the downloaded tarball, the subject is
+this package at this version, the DSSE signature verifies under the certificate carried in the
+bundle, and that certificate's subject alternative name is the workflow the statement claims. Two
+things are **not** established and are printed in the same block every time the four are:
+`certificate-chain` — that the certificate is Sigstore's — and `transparency-log`. Only a `failed`
+state raises a finding (`A25`, high).
+
+**Why absence raises nothing.** Measured before deciding: of the 40 packages in the pinned corpus,
+**12 publish a provenance attestation and 28 do not**. A finding on the 70 % would be a finding
+about the ecosystem rather than about a package, which is precisely the miscalibration §17 and the
+0.2 release exist to prevent. So absence is a fact with no severity, and the fact's own text says
+that most published packages are in that state.
+
+**What A25 therefore is, and is not.** It is not an attack detector: a publisher who wants no
+provenance publishes none, and that is silent. Nothing about the check can be *made* to fail by an
+attacker who would otherwise be caught. What it catches is an attestation that exists and does not
+describe the artifact it was served with — the wrong version's bundle, a mirror that mismatched
+them, a payload edited after signing. That is a defect however it arose, and it is worse than no
+attestation, because a reader who saw only the badge would conclude the opposite.
+
+**Why the verification stops where it does.** The bundle is a Sigstore bundle, and full
+verification is a chain: the leaf certificate must chain to the Fulcio root, and the Rekor entry
+must be checked against Rekor's key. Both roots live in the Sigstore trust root, which is served by
+`tuf-repo-cdn.sigstore.dev` — a **different host**, which `SECURITY.md` forbids reaching. Pinning
+them as constants instead is a trust-root decision, not an implementation detail, and it is left to
+the maintainer rather than made here. What is left is genuine but narrower: the four checks prove
+the bundle is internally consistent and is about these exact bytes. The digest check is the
+load-bearing one — it is the link that makes one chain of digests run from `dist.integrity` through
+the download into the signed statement — and it is why `readProvenance` takes the verified tarball
+rather than trusting the statement's own account of what it covers.
+
+**Why the endpoint is built and not followed.** `dist.attestations.url` is ignored. The tarball URL
+has to be read out of the packument because there is no other way to name it, which is why it is
+guarded by an origin check; an attestation needs no such freedom, so the URL is constructed from
+the `--registry` base and the resolved name and version, and those two are re-validated against the
+same patterns `parseSpec` uses because both come out of a registry-controlled document. A doctored
+packument cannot redirect the request at all, not even to another path on the same host.
+
+**Why a provenance failure never fails the analysis.** The tarball has already been checked against
+`dist.integrity` by the time the attestation is read. An endpoint that is down or a bundle that does
+not decode leaves the fact `unreadable` — a third answer, distinct from `absent` — and the report
+is produced. Turning a registry outage into exit code 2 would make provenance a precondition for
+reading a package rather than something reported about it.
+
+**What the fixture proves by being what it is.** `tests/support/attestation-fixture.ts` issues its
+own **self-signed** certificate and signs its own statements. That is possible only because no
+chain is validated, and it is the documented limit demonstrated rather than described: a
+certificate nobody issued passes every check this tool runs, which is why the `not checked` block
+is printed and not footnoted.
+
+**Measured.** The pinned 40-package corpus produces the same distribution as before — a Fact moves
+no number, and `A25` fires on none of the 40.

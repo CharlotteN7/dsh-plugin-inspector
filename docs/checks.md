@@ -19,6 +19,51 @@ nav_order: 4
 | `dependencies`, `peerDependencies` — the declared names | `package.json` |
 | `modelVisibleFiles` — shipped `SKILL.md` / skills / `AGENTS.md` / `CLAUDE.md` | file walk |
 | `filesRead`, `bytesRead`, `sourceFilesParsed` | analysis run |
+| `provenance` — whether the registry published a build provenance attestation, and when it did, the source repository, commit, ref and workflow it names, plus every check that ran and every one that did not | `dist.attestations` in the version document, then the registry's attestation endpoint. **`--from-npm` only** |
+
+### What the provenance fact says, and what it does not
+
+npm publishes a **provenance attestation** for a package released from a trusted CI environment: a
+Sigstore bundle holding a DSSE envelope over an in-toto statement that names the published tarball
+by digest, the source repository and commit it was built from, and the workflow file that built it.
+The version document says whether one exists, under `dist.attestations.provenance`; the bundle
+itself is at `<registry>/-/npm/v1/attestations/<name>@<version>`.
+
+The fact has five states, and they are five different answers:
+
+| State | Meaning |
+|---|---|
+| `unavailable` | The target is a directory or a local tarball. Neither has a registry statement, so this is a statement about the mode and not about the package |
+| `absent` | The registry published no attestation for this version. **28 of the 40 pinned packages are in this state.** It is the common case and no finding fires on it |
+| `unreadable` | The version document said there is one and it could not be fetched or decoded. Reported with the reason; the analysis is unaffected, because `dist.integrity` had already vouched for the bytes |
+| `attested` | An attestation was read and every check below passed |
+| `failed` | An attestation was read and a check below did not pass → **A25** |
+
+**Four checks run, all offline, against bytes already in hand:**
+
+| Check | What it establishes |
+|---|---|
+| `subject-digest` | The statement's subject digest is the SHA-512 of the tarball this run analysed. This is the load-bearing one: it is what ties the statement to *these* bytes rather than to another version of the same package |
+| `subject-package` | That subject is this package at this version, as a package URL |
+| `dsse-signature` | The envelope's signature verifies under the public key of the certificate carried inside the bundle |
+| `certificate-identity` | The certificate's subject alternative name is the workflow the statement claims, so the payload and the signer agree. Skipped, and recorded as skipped, when the statement names no GitHub Actions workflow |
+
+**Two things are not established, and the report prints both every time it prints the four above:**
+
+- `certificate-chain` — **that the signing certificate is Sigstore's.** Establishing it needs the
+  Fulcio root, which lives in the Sigstore trust root and on no npm registry. Without it the four
+  checks prove the bundle is internally consistent and is about these exact bytes; they do not
+  prove the identity in it is real. A registry serving a doctored bundle passes all four.
+- `transparency-log` — the Rekor inclusion proof the bundle carries, which is checked against the
+  same root.
+
+**What provenance does not prove, even fully verified.** It says a named workflow in a named
+repository at a named commit produced these bytes. It does **not** say that the repository is
+trustworthy, that the commit was reviewed by anyone, that the workflow was not itself modified in
+that commit, or that the code does nothing harmful. A malicious package built in CI from a public
+repository carries a perfect attestation. Provenance answers "where did this come from"; every
+other check in this catalogue answers "what does it do", and the second question is not weakened by
+a good answer to the first.
 
 ### Tier A — decidable, structured declaration, a real verdict
 
@@ -53,6 +98,7 @@ confidence `certain`.
 | A22 | `bin` installs a command on the user's PATH | low | linked into the profile's `node_modules/.bin` at install time. The harness never runs it; the user, a script, or an agent shell tool can |
 | A23 | Inserted row carries `isolate` or `intercept` on a catalogued service | **critical** for a security seam, high otherwise | `vendor/loader/src/config/isolate.ts` re-maps the named service to a fresh symbol realm for the row and every row beneath it, so a descendant injecting that name receives this subtree's implementation instead of the profile's. The same substitution as replacing the service in code, declared in YAML |
 | A24 | Ships a `binding.gyp` — a native build declaration | medium; **high** when a build step's command line fetches, pipes to a shell, evaluates inline code, or decodes a payload | file presence at the package root, plus a text match for an `actions` / `rules` / `postbuilds` key and the same command signals A1 grades a lifecycle script by. A package that ships this file and declares no `install` or `preinstall` script gets `node-gyp rebuild` as its install command by default, and `node-gyp` evaluates the file to decide what that build does. **The declaration is in none of the entry points a reader checks** — not `main`, not `bin`, not `exports`, not `scripts` — which is the whole reason to read it. It reaches execution through the same `allowBuilds` gate as A1 without needing a key in `package.json` at all. The detail also says when the package ships no C or C++ source, because a gyp with nothing to compile is a build declaration whose only effect is that a build runs. **The file is never parsed and never evaluated** — see the note below |
+| A25 | A provenance attestation the registry published for this version that does not check out — a subject digest that is not the downloaded tarball's, a subject that is another package, a DSSE signature that does not verify, or a signing certificate naming a workflow the statement does not | high | the four checks above. **Absence raises nothing**: 28 of 40 pinned packages publish no attestation, and a finding on the majority of legitimate packages is the miscalibration the 0.2 release existed to remove. This is therefore not an attack detector — a publisher who wants no provenance publishes none, which is silent — but a mismatch between a real attestation and the artifact it is served with, which is a defect whichever way it arose. Registry mode only |
 
 **Reach note for A12, stated because getting this wrong would be dishonest.** Shipping a `SKILL.md`
 inside an npm package does **not** by itself put it in front of the model. There is no

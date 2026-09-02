@@ -50,10 +50,18 @@ Read the right-hand column honestly:
   output and no source" — fires on 65 % of published packages, because that is what publishing a
   package is. It is `low`, it does not degrade the analysis, and it is not a defect.
 
+- **12 of the 40 publish a provenance attestation; 28 do not.** That measurement is why the
+  provenance report is a Fact and not a finding: a severity on the 70 % would be a severity about
+  the ecosystem. All 12 attestations check out against the tarball the registry served — the
+  subject digest, the package URL, the DSSE signature under the bundle's own certificate, and that
+  certificate's workflow identity — so `A25` fires on none of the 40. What none of that
+  establishes is that the certificates are Sigstore's; see
+  [the catalogue](checks.html#what-the-provenance-fact-says-and-what-it-does-not).
+
 - **A new check that fires on nothing here has earned its place.** `A24` (a `binding.gyp` build
-  declaration) and `C8` (identifiers spelled with Unicode escapes) fire on **none** of the 40
-  packages; the baseline they were added under differs from the one before them in the recorded
-  tool version and in nothing else. A check that is quiet on legitimate packages and loud on the
+  declaration), `C8` (identifiers spelled with Unicode escapes) and `A25` (a provenance attestation
+  that does not check out) fire on **none** of the 40 packages; the baseline they were added under
+  differs from the one before them in the recorded tool version and in nothing else. A check that is quiet on legitimate packages and loud on the
   technique it names is what the calibration bar is for — the opposite outcome is the mistake 0.2
   existed to fix.
 

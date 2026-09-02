@@ -36,6 +36,12 @@ commands it puts on your PATH, its dependencies, what model-visible text it ship
 it could be read. A well-behaved plugin has a full facts section and an empty findings section.
 That is a useful answer, not an empty one.
 
+One fact is not about the package but about how it was published: with `--from-npm`, whether npm
+holds a **build provenance attestation** for that version and, when it does, the source repository,
+commit and workflow the signed statement names. The report prints what it checked and, beside it,
+what it did not — this tool carries no Sigstore trust root, so it never calls an attestation
+verified. Most published packages have none, so an absence is a fact and not a finding.
+
 **Findings** — ranked, in three tiers:
 
 | Tier | What it reads | What it can say |
