@@ -12,9 +12,15 @@
 
 /**
  * Harness version these tables were transcribed from — the version string in
- * the checkout's own `packages/bundle/*&#47;package.json`.
+ * the shipped bundles' own `package.json`, which is `dsh`'s own version.
+ *
+ * Re-verified against `0.1.1-rc.2`, the release npm tags `latest`, by
+ * extracting each table from the published packages and diffing it against the
+ * one here. What moved: six rows inserted by the web bundle, three seam keys,
+ * and two sandbox traps this table had never carried. What did not: every row
+ * name, every row's bundle membership, and the waterfall event set.
  */
-export const HARNESS_REFERENCE = '0.1.0-rc.5'
+export const HARNESS_REFERENCE = '0.1.1-rc.2'
 
 /** The shipped bundles, each of which is one patch layer over the profile root. */
 export type BundleName = 'base' | 'headless' | 'web-app'
@@ -77,6 +83,7 @@ export const CORE_ROWS: ReadonlyMap<string, CoreRow> = new Map([
   ['cordis-host-runner', { module: '@deepseek-ai/dsh-cordis-host-runner', bundles: ['web-app'] }],
   ['credentials', { module: '@deepseek-ai/dsh-credentials-local', bundles: ['base'] }],
   ['directory-picker', { module: '@deepseek-ai/dsh-host-directory-picker-auto', bundles: ['web-app'] }],
+  ['file-reference-local', { module: '@deepseek-ai/dsh-file-reference-local', bundles: ['web-app'] }],
   ['fs-observation-policy', { module: '@deepseek-ai/dsh-fs-observation-policy', bundles: ['base'] }],
   ['fs-sandbox', { module: '@deepseek-ai/dsh-fs-sandbox', bundles: ['base'] }],
   ['goal', { module: '@deepseek-ai/dsh-goal', bundles: ['base'] }],
@@ -106,6 +113,7 @@ export const CORE_ROWS: ReadonlyMap<string, CoreRow> = new Map([
   ['session-projection', { module: '@deepseek-ai/dsh-session-projection', bundles: ['base'] }],
   ['session-projection-cache', { module: '@deepseek-ai/dsh-session-projection-cache', bundles: ['web-app'] }],
   ['session-query-sqlite', { module: '@deepseek-ai/dsh-session-query-sqlite', bundles: ['base'] }],
+  ['session-reference', { module: '@deepseek-ai/dsh-session-reference', bundles: ['web-app'] }],
   ['session-stats', { module: '@deepseek-ai/dsh-session-stats', bundles: ['web-app'] }],
   ['session-telemetry-otel', { module: '@deepseek-ai/dsh-session-telemetry-otel', bundles: ['base'] }],
   ['session-title', { module: '@deepseek-ai/dsh-session-title', bundles: ['base'] }],
@@ -151,6 +159,8 @@ export const CORE_ROWS: ReadonlyMap<string, CoreRow> = new Map([
   ['typert-gateway', { module: '@deepseek-ai/dsh-api-gateway', bundles: ['base'] }],
   ['typert-loader', { module: '@deepseek-ai/dsh-typert-loader', bundles: ['base'] }],
   ['ui-agent-preset', { module: '@deepseek-ai/dsh-client-ui-agent-preset', bundles: ['web-app'] }],
+  ['ui-attachment', { module: '@deepseek-ai/dsh-client-ui-attachment', bundles: ['web-app'] }],
+  ['ui-brand-official', { module: '@deepseek-ai/dsh-client-ui-brand-official', bundles: ['web-app'] }],
   ['ui-commands', { module: '@deepseek-ai/dsh-client-ui-commands', bundles: ['web-app'] }],
   ['ui-conversation', { module: '@deepseek-ai/dsh-client-ui-conversation', bundles: ['web-app'] }],
   ['ui-cordis', { module: '@deepseek-ai/dsh-client-ui-cordis', bundles: ['web-app'] }],
@@ -163,6 +173,8 @@ export const CORE_ROWS: ReadonlyMap<string, CoreRow> = new Map([
   ['ui-model-selection', { module: '@deepseek-ai/dsh-client-ui-model-selection', bundles: ['web-app'] }],
   ['ui-permission', { module: '@deepseek-ai/dsh-client-ui-permission-presets', bundles: ['web-app'] }],
   ['ui-plan', { module: '@deepseek-ai/dsh-client-ui-plan', bundles: ['web-app'] }],
+  ['ui-reference', { module: '@deepseek-ai/dsh-client-ui-reference', bundles: ['web-app'] }],
+  ['ui-renderer', { module: '@deepseek-ai/dsh-client-ui-renderer', bundles: ['web-app'] }],
   ['ui-settings', { module: '@deepseek-ai/dsh-client-ui-settings', bundles: ['web-app'] }],
   ['ui-settings-general', { module: '@deepseek-ai/dsh-client-ui-settings-general', bundles: ['web-app'] }],
   ['ui-settings-models', { module: '@deepseek-ai/dsh-client-ui-settings-models', bundles: ['web-app'] }],
@@ -224,10 +236,10 @@ export const SECURITY_ROW_IDS: ReadonlyMap<string, string> = new Map([
  * replaces a core service for every consumer in its scope.
  */
 export const SEAM_KEYS: ReadonlySet<string> = new Set([
-  'agentDefaultModel', 'agentLoop', 'agentPresets', 'agents', 'apiProxy', 'approval',
-  'attachments', 'clientModules', 'codeRuntime', 'commands', 'compaction', 'credentials',
-  'directoryPicker', 'e2b', 'fs', 'goals', 'invariants', 'jobs', 'llm', 'lsp',
-  'messageFeedback', 'permissionPresets', 'planMode', 'sandbox', 'sandboxPolicy',
+  'agentDefaultModel', 'agentLoop', 'agentPresets', 'agents', 'agentTeams', 'apiProxy', 'approval',
+  'attachments', 'authorization', 'clientModules', 'codeRuntime', 'commands', 'compaction',
+  'credentials', 'directoryPicker', 'e2b', 'fileReferences', 'fs', 'goals', 'invariants', 'jobs',
+  'llm', 'lsp', 'messageFeedback', 'permissionPresets', 'planMode', 'sandbox', 'sandboxPolicy',
   'sessionPersistence', 'sessionProjectionCache', 'sessionProjections', 'sessionQuery',
   'sessionReferenceResolver', 'sessions', 'sessionTelemetry', 'sessionTitle', 'settings',
   'shell', 'shellEnv', 'skills', 'spillStore', 'storage', 'storageDomain', 'subagents',
@@ -236,10 +248,21 @@ export const SEAM_KEYS: ReadonlySet<string> = new Set([
   'workspaceRegistry',
 ])
 
-/** The subset of {@link SEAM_KEYS} whose replacement removes a constraint. */
+/**
+ * The subset of {@link SEAM_KEYS} whose replacement removes a constraint.
+ *
+ * `authorization` joined the catalogue in `0.1.1-rc.2`: it is the registry of
+ * flows that obtain a credential through a conversation with the user, so
+ * providing it means owning that conversation. That is the same class of
+ * substitution as `credentials`, which this set already holds. The other two
+ * keys the release added are not: `fileReferences` decides which paths are
+ * offered for completion and `agentTeams` is the team form of `subagents`,
+ * which is deliberately not here either.
+ */
 export const SECURITY_SEAM_KEYS: ReadonlySet<string> = new Set([
-  'approval', 'sandbox', 'sandboxPolicy', 'permissionPresets', 'credentials', 'subprocess',
-  'shell', 'fs', 'tools', 'agentLoop', 'sessionPersistence', 'sessionTelemetry', 'invariants',
+  'approval', 'authorization', 'sandbox', 'sandboxPolicy', 'permissionPresets', 'credentials',
+  'subprocess', 'shell', 'fs', 'tools', 'agentLoop', 'sessionPersistence', 'sessionTelemetry',
+  'invariants',
 ])
 
 /**
@@ -248,6 +271,10 @@ export const SECURITY_SEAM_KEYS: ReadonlySet<string> = new Set([
  * without calling it short-circuits the chain including the built-in behavior.
  *
  * Note there is no `fs/read-intent` — the intent family is write and edit only.
+ *
+ * Unchanged in `0.1.1-rc.2`. The catalogue's event set grew by four and lost
+ * one, but every addition carries `mode: 'emit'`, and only `mode: 'waterfall'`
+ * hands a listener the trailing `next` this set is about.
  */
 export const WATERFALL_EVENTS: ReadonlySet<string> = new Set([
   'agent/pre-step', 'agent/request', 'agent/request-error', 'approval/request',
@@ -273,6 +300,8 @@ export const SANDBOX_DENIED_GLOBALS: ReadonlyMap<string, string> = new Map([
   ['setTimeout', "redirected to the cordis timer service (inject: ['timer'])"],
   ['setInterval', "redirected to the cordis timer service (inject: ['timer'])"],
   ['setImmediate', "redirected to the cordis timer service (inject: ['timer'])"],
+  ['clearTimeout', "redirected to the cordis timer service (inject: ['timer'])"],
+  ['clearInterval', "redirected to the cordis timer service (inject: ['timer'])"],
 ])
 
 /**
