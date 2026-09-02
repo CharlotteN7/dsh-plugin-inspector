@@ -50,18 +50,55 @@ repository root is a 404 on the published page.
    node or nesting ceiling the rest is unread. Any layer using an anchor raises `C7`, which
    degrades the analysis; a clean report over an aliased layer is not a claim that the layer is
    clean.
-8. **Injection phrasing that is not spelled in ASCII.** The injection heuristics are Latin-alphabet
+8. **A constant this tool cannot fold.** A name selecting a service, a module or an event is
+   resolved when it is a literal, a `+` chain of literals, a template whose spans are literals, or
+   `[…].join(…)` over literals — and refused for everything else, including a module-scope `const`
+   bound to one of those and used a line later. Refusing is deliberate: resolving a binding is
+   value tracking, and every attempt to reach a little further has a next case behind it. The
+   refusal is not silent — it is `C2`, and it degrades the report.
+9. **Which implementation a detached member reaches.** `const { provide } = ctx` and
+   `const p = ctx.provide` leave a bare name that still does everything `ctx.provide` does, and no
+   Tier B check matches it, because they all match on the receiver. This tool reports the
+   detachment rather than following it, so the outcome is a degraded report and not a `B1`. The
+   same is true of a context passed into a helper, or `ctx.provide.bind(ctx)` — neither is
+   detected, and **neither degrades the report either**, which is the sharpest remaining hole in
+   this tier.
+10. **Injection phrasing that is not spelled in ASCII.** The injection heuristics are Latin-alphabet
    regexes. Substituting Cyrillic homoglyphs — `о` U+043E for `o`, `е` U+0435 for `e` — defeats
    **every one of the eleven rules**, including the two hidden-character rules, which look for
    invisible characters and not for visible ones that are the wrong letter. Verified against the
    rule table, not assumed. Normalisation is not in 0.5; do not read a clean `A21`/`B10` as
    evidence that shipped markdown carries no instructions.
 
-### Every Tier B check has a one-line bypass
+### Every Tier B check has a one-line bypass, and not every bypass is visible
 
 `ctx['pro' + 'vide']('approval', …)` defeats seam detection. A computed specifier defeats every
 import check. A base64 event name defeats every listener check. Splitting a credential read and a
 network call across two packages defeats `B8`. A Cyrillic `о` defeats every injection rule.
+
+Those bypasses do not all cost the same. **A name that selects a target either folds to a constant
+this tool can read, or raises `C2` and degrades the report** — that covers a computed member on
+`ctx`, a specifier this tool cannot fold, a name assembled at runtime, a `base64` decode, and an
+API method pulled off its receiver and called through a bare binding. There is no way to hide
+*which* service, module, or event is being reached that leaves the report claiming its negatives
+are reliable.
+
+**The heuristics that read content rather than select a target are the other half, and they are
+silent.** `B6` matches a credential path written as one string, so a path split across a
+concatenation the folder does not reach is missed with no `C2`. `B10` and `A21` match English
+phrasing, so a homoglyph or a rephrasing is missed with no `C2`. `B8` is a pair, so splitting the
+halves across two packages is missed with no `C2`. Nothing degrades in any of those cases, because
+nothing was unreadable: the tool read the bytes and its rule did not match them. **So a clean
+`B6`, `B10`, `A21` or `B8` is not a claim, whatever `analysis.integrity` says.** `negativesReliable`
+is a statement about whether the analyser could resolve the names it matches on — not a promise
+that a heuristic caught what it was looking for.
+
+Three spellings that used to cost nothing at all now cost a finding or a degrade, and the fixture
+`tests/fixtures/detached-dispatch/` is the record: `process.getBuiltinModule('node:fs')` reaches a
+builtin with no import declaration and is now read as one, a specifier assembled out of string
+literals is folded and matched, and `const { provide } = ctx` followed by
+`provide.call(ctx, 'approval', …)` raises `C2` because the receiver every Tier B check matches on
+is gone.
 
 **Tier A is much harder to hide from, because it is structured declaration rather than code.**
 The harness must read `disabled: true` literally in order to disable anything, so there is no

@@ -99,18 +99,26 @@ with the `typescript` compiler API, `ts.createSourceFile`, syntax only, **no pro
 checker, no module resolution, no transpilation, no execution**. Default confidence `high`, dropped
 to `moderate` when any Tier C readability finding fires.
 
+**Names are folded before they are matched.** A string argument that selects a target — a module
+specifier, a seam key, an event name, an environment variable — is read through a bounded constant
+folder: a literal, a `+` chain of literals, a template whose spans are literals, or `[…].join(…)`
+over an array of literals. Anything reaching an identifier, a property, or any other call is
+refused, and the refusal is `C2`, which degrades the report. The folder never evaluates: it
+concatenates literals out of an already-parsed tree. Both tiers ask the same function, so a site is
+either matched here or degraded there, and never both.
+
 | id | Check | Severity | Method |
 |---|---|---|---|
-| B1 | Replaces a core capability seam — `ctx.provide(<seam>, …)` / `ctx.set(<seam>, …)` where `<seam>` is one of the 55 keys from `api-catalog.ts` | **critical** for one of the 13 `SECURITY_SEAM_KEYS`, high for the other 42 | call expression, literal first argument matched against the seam key set |
+| B1 | Replaces a core capability seam — `ctx.provide(<seam>, …)` / `ctx.set(<seam>, …)` where `<seam>` is one of the 58 keys from `api-catalog.ts` | **critical** for one of the 14 `SECURITY_SEAM_KEYS`, high for the other 44 | call expression, first argument folded and matched against the seam key set. The member is read on its receiver, so `provide` destructured off `ctx` and called through the bare name is not this finding — it is `C2` |
 | B5 | System-prompt mutation — `system-prompt/assemble` listener, or `ctx.systemPrompt.{section,context,variable,tools,suppressRuntimeContext}` | high | call matching |
 | B6 | Credential read — `process.env.*(TOKEN\|KEY\|SECRET\|PASSWORD\|CREDENTIAL)*`, `~/.dsh/credentials`, `~/.npmrc`, `~/.aws`, `~/.ssh`, `ctx.credentials.*` | medium alone | identifier + literal matching |
-| B7 | Network egress — `fetch`, `node:http(s).request`, `node:net`, `WebSocket`, `undici` | medium alone | import + call matching |
+| B7 | Network egress — `fetch`, `node:http(s).request`, `node:net`, `WebSocket`, `undici` | medium alone | import + call matching. A module reached through `process.getBuiltinModule` counts, and the finding says so rather than claiming an import |
 | B8 | **Exfiltration pair** — B6 ∧ B7 in the same package | high | set intersection. Reported explicitly as *capability, not dataflow*: the tool cannot prove the credential value reaches the socket. `high` rather than critical because it fires on 18 % of published plugins |
-| B9 | Direct `node:child_process` / `node:worker_threads` / `node:vm` | medium alone, high paired with B8's two halves | import specifier. Bypasses `ctx.subprocess` and `ctx.sandbox` entirely. `medium` alone because a bare import fires on half the published ecosystem |
+| B9 | Direct `node:child_process` / `node:worker_threads` / `node:vm` | medium alone, high paired with B8's two halves | import specifier, `require`, or `process.getBuiltinModule` — three ways in, not two. Bypasses `ctx.subprocess` and `ctx.sandbox` entirely. `medium` alone because a bare import fires on half the published ecosystem |
 | B10 | Prompt-injection heuristics on **model-visible text only** — `description` string literals inside a registered tool definition, and nothing else. Shipped skill and instruction markdown is A21's, not this check's | high | imperative-override phrasing, role reassignment, exfiltration instructions, hidden-text markers — zero-width and bidirectional controls, the tag block, and runs of four or more variation selectors, the encoding GlassWorm shipped executable JavaScript in. **The receiver guard is what makes the title true:** the enclosing object literal must reach `<ctx>.tools.register(…)` or `defineTool(…)`, directly or through a name registered later in the same file. `description` is one of the commonest property names in JavaScript — a JSON schema, an OpenAPI document, a changelog entry — and without the guard a package's release notes produce a `high` finding titled "Tool description …" about a tool that does not exist. Nested properties inside the definition count, because a parameter's `description` reaches the model in the same schema |
 | B11 | Nested plugin mounting — `ctx.plugin(…)`, loader manipulation | high | call matching. A layer that mounts further layers moves the analysis target |
 | B12 | Dynamic code construction — `eval`, `new Function`, `vm.runInNewContext`, `module._load` | high | call matching |
-| B13 | Filesystem access outside `ctx.fs` — imports `node:fs` or `node:fs/promises` | medium | Reads and writes through the Node API are invisible to `fs/write-intent`, `fs/edit-intent`, `fs/observed`, and the `fs-sandbox` row, so no policy in the profile sees them and nothing appears in the session log |
+| B13 | Filesystem access outside `ctx.fs` — reaches `node:fs` or `node:fs/promises`, by import, by `require`, or through `process.getBuiltinModule` | medium | Reads and writes through the Node API are invisible to `fs/write-intent`, `fs/edit-intent`, `fs/observed`, and the `fs-sandbox` row, so no policy in the profile sees them and nothing appears in the session log |
 
 **The framing B7, B9, and B13 share.** The harness's own dynamic-package sandbox
 (`cordis-host-runner/src/sandbox.ts`) traps exactly `require`, `setTimeout`, `setInterval`,
@@ -126,13 +134,25 @@ That is the harness's reckoning, not a rule invented here.
 | id | Check | Severity | Effect |
 |---|---|---|---|
 | C1 | Minified or obfuscated source — long lines that are **most of the file**, or a dense file of under five lines. One long line is an embedded prompt or a base64 asset, not minification, and the harness's own web bundle has one | medium | **degrades** |
-| C2 | Dynamic dispatch — computed member access on `ctx` (`ctx[expr]`), non-literal `import()`/`require()`, `atob`/`Buffer.from(…, 'base64')`, an assembled name passed to `.on`/`.set`/`.emit` **on a known context binding**. The receiver guard is the whole check: `.set` and `.get` are `Map`'s names too, and ``this.steps.set(`${turn}:${step}`, t)`` is a composite key, not evasion | high | **degrades** |
+| C2 | Dispatch the analyzer cannot follow — computed member access on `ctx` (`ctx[expr]`, and its destructuring form `const { [k]: fn } = ctx`), an unfoldable `import()`/`require()`/`process.getBuiltinModule()` specifier, `atob`/`Buffer.from(…, 'base64')`, an unfoldable name passed to `.on`/`.set`/`.emit` **on a known context binding**, and a **member detached from its receiver** — `const { provide } = ctx`, `const p = ctx.provide`, or `function apply({ provide })`. The receiver guard is the whole check: `.set` and `.get` are `Map`'s names too, and ``this.steps.set(`${turn}:${step}`, t)`` is a composite key, not evasion. See the note below | high | **degrades** |
 | C3 | Ships built output with no corresponding source (`lib/` without `src/`) | low | **does not degrade** — the bytes were read exactly as written and exactly as they will run; what cannot be checked is whether they match the repository. Treating that as an unreadable package marks every ordinary published tarball degraded, because shipping built output and no source is what publishing *is* |
 | C4 | Unreadable payload — `.node`, `.wasm`, binaries, files over a size or count cap, and entries that are not regular files (a symlink, a FIFO, a socket) | medium for `binary`, low for every other reason | **degrades** |
 | C5 | The mounted layer hit a walk ceiling — nesting depth or node count | high | **degrades**. Rows past the ceiling were not read |
 | C6 | A `.min.js` artifact | low | **degrades** |
 | C7 | The mounted layer builds rows out of YAML anchors and aliases. `*a` is not a copy — it hands the loader the same node again, so a row anchored under an inert key can be the row that lands in a live one, and one row in the file can be two in the composed profile. The reader expands every alias to its own node before reading the layer, so the reading matches the loader; the finding stands because the document a person reviews is no longer the document that mounts | medium | **degrades** |
 | C8 | An identifier spelled with Unicode escapes — `\u0066etch` for `fetch`, the technique `@kolbo/mcp@1.57.1` (GHSA-pm5r-9rq7-j86p) shipped. One finding per package, naming every distinct name the escapes resolve to | medium | **does not degrade** — see the note below |
+
+**The two halves of C2, and why the second one exists.** Tier B matches a *member* on a
+*receiver*: B1 reads `ctx.provide`, B5 reads `ctx.on`, B10 reads `tools.register`, B7/B9/B13 read
+`process.getBuiltinModule`. The first half of C2 covers a hidden member name. The second covers a
+missing receiver, which is the other way to reach the same call: `const { provide } = ctx` leaves a
+bare `provide` that still replaces the seam, and `provide.call(ctx, 'approval', …)` names no
+receiver at all. Following that binding to its call sites is value tracking this tool does not do,
+so the honest outcome is a degraded report rather than a `B1` — and the guard that keeps it off
+ordinary code is the same one the call form uses: the object being destructured has to be a known
+receiver (`ctx`, `context`, `globalThis`, `global`, `this.ctx`, or `process`), or the first
+parameter of `apply`, which is the plugin context by the harness's own mount contract.
+`const { set } = options` is not this finding.
 
 **Why C8 does not degrade, and what it is for.** The escape is resolved in the *scanner*, before
 any binding, so `\u0066etch` and `fetch` are the same program and no behavior distinguishes them.

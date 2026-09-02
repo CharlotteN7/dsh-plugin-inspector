@@ -42,7 +42,7 @@ That is a useful answer, not an empty one.
 |---|---|---|
 | **A** | Structured declarations: `package.json` keys, Cordis patch rows, the `!!js` expression inventory | A verdict. Confidence is `certain`, because the harness reads the same bytes the same way |
 | **B** | Shipped source, through the TypeScript parser | A capability report: "this plugin **can** do X" |
-| **C** | Whether the package could be read at all — minification, computed names, sourceless builds, binaries | That the analysis is degraded, and that no Tier B negative can be trusted |
+| **C** | Whether the package could be read at all — minification, names it cannot resolve, a member detached from the receiver Tier B matches it on, sourceless builds, binaries | That the analysis is degraded, and that a Tier B negative about a *name* cannot be trusted. It is not a promise about the heuristics that read content — see [the ceiling](ceiling.md) |
 
 Every Tier B and Tier C finding carries a `bypass` field naming the one-line evasion for that
 specific check. It is inside the finding, not in a footnote, so a report cannot be rendered

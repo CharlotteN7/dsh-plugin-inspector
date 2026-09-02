@@ -125,7 +125,7 @@ surfaces as a finding rather than as quietly parsed data.
 the capability seam keys, the waterfall event set, and the module tables — each citing the harness
 file it was transcribed from.
 
-**Why.** These are facts about harness version `0.1.0-rc.6`, not opinions, and they will go stale.
+**Why.** These are facts about one harness version, not opinions, and they will go stale.
 Keeping them in one module makes re-syncing against a new harness a single reviewable diff rather
 than an archaeology exercise across a dozen check functions. `HARNESS_REFERENCE` records which
 version they came from.
@@ -136,11 +136,31 @@ non-insert patch as an assertion guard, so a patch naming the wrong module is si
 in full. Check A4 exists only because that map does.
 
 The two tables the tiers lean on hardest are **exact** against the harness at `HARNESS_REFERENCE`,
-not approximations of it: `SEAM_KEYS` holds all 55 `SERVICE_API[].key` values from
-`packages/extensions/tool-cordis/src/api-catalog.ts`, and `CORE_ROWS` holds all 131 row ids the
-three shipped bundle patches declare — 55 = 55 and 131 = 131, with no id in either direction that
-the other side does not have. What goes stale is the harness version they describe, not the
-completeness of the transcription.
+not approximations of it: `SEAM_KEYS` holds all 58 `SERVICE_API[].key` values from the tool-cordis
+api-catalog, and `CORE_ROWS` holds all 137 row ids the three shipped bundle patches declare —
+58 = 58 and 137 = 137, with no id in either direction that the other side does not have. What goes
+stale is the harness version they describe, not the completeness of the transcription.
+
+Re-syncing is a diff, not a rewrite, and `0.1.0-rc.5` → `0.1.1-rc.2` is the evidence: five releases
+added six rows (all inserted by the web bundle) and three seam keys, renamed nothing, removed
+nothing, and left the waterfall event set alone. The one correction that was not drift is
+`SANDBOX_DENIED_GLOBALS`, which had listed five traps since 0.1 while the sandbox has always had
+seven — `clearTimeout` and `clearInterval` were missed in the original transcription, and
+`docs/checks.md` had been naming all seven the whole time.
+
+`scripts/harness-sync.ts` is what makes `HARNESS_REFERENCE` a checkable claim rather than a
+remembered one. It reads the three bundle patches and the api-catalog out of the published
+tarballs over the same integrity-verified path `--from-npm` uses, parses the catalogue with
+`ts.createSourceFile`, and diffs each table in both directions; a scheduled workflow runs it
+weekly. It resolves **one** version — the CLI's, because the bundle packages carry dist-tags of
+their own and `@deepseek-ai/dsh-base@latest` currently points at `0.0.1-rc.1`, a different row
+inventory nobody has installed. Reading each package at its own `latest` would diff the tables
+against a harness that does not exist.
+
+The tables have no counterpart in the unit suite beyond `tests/unit/knowledge.spec.ts`, which pins
+the sizes and the subset invariants. That file cannot tell whether the tables are *right* — only
+the sync script can, and only with a network. What it catches is the edit that drops a row by
+accident, and the security subset entry that is not in its parent set and therefore never fires.
 
 ---
 
@@ -592,3 +612,48 @@ concealment is real and its effect on this analysis is nil.
 **One finding per package**, not per site, with the resolved names in the detail and the count in
 `occurrences` — §12 applied: an obfuscator that escapes ninety identifiers warrants the same one
 decision the first of them warranted.
+
+---
+
+## 23. A name is folded or the report degrades; a receiver is never followed
+
+**Decision.** A string that selects a target — a module specifier, a seam key, an event name, an
+environment variable, a tool `description` — is read through a bounded constant folder in
+`src/syntax.ts`: a literal, a `+` chain of them, a template whose spans are literals, or
+`[…].join(…)` over an array of them, to a nesting bound of eight. Everything else is refused, and
+the refusal raises `C2`. `process.getBuiltinModule(id)` joins `import` and `require` as a way a
+module arrives. A member detached from a known receiver — `const { provide } = ctx`,
+`const p = ctx.provide`, `function apply({ provide })` — raises `C2` and is **not** resolved.
+
+**What was wrong.** A package spelling all three of these in the unusual way produced no Tier B
+finding, no Tier C finding, and `negativesReliable: true`. It was a false clean bill of health,
+which is worse than a missed finding because the reader acts on it — the same class as the YAML
+alias evasion §18 fixed.
+
+**Why C2 did not fire, which was the actual defect.** C2 was built entirely around a hidden
+*name*: a computed member, an assembled argument, a base64 decode. But every Tier B check matches a
+member **on a receiver**, so there are two ways to miss, and only one of them was covered. Detach
+the member and the name is right there in plain text while the thing Tier B keys on is gone. The
+fix is the second half of the same idea, not a special case for `provide.call`.
+
+**Why the receiver is not followed.** Resolving `const { provide } = ctx` to `ctx.provide` and
+re-matching B1 at the call site is alias tracking, and the next spellings — a context passed into a
+helper, `ctx.provide.bind(ctx)`, a member stored on an object — are behind it with no natural stop.
+Every one of them would still need the degrade. So the degrade is the answer, and the detection
+would only ever have been an extra.
+
+**Why fold at all, then.** Folding is bounded in a way alias resolution is not: it reads the
+expression in front of it and never leaves that expression. `['node:child', '_process'].join('')`
+is a name the file states, and a degrade is a worse answer than the `B9` the name earns. The two
+tiers call the same function, so a folded site is matched and not degraded, and an unfoldable one
+is degraded and not silently dropped — there is no third outcome.
+
+**What still passes silently, and where it is written down.** The heuristics that read *content*
+rather than select a target — `B6`'s credential paths, `B10` and `A21`'s injection phrasing, `B8`'s
+pair — are missed with no `C2`, because nothing was unreadable: the bytes were read and the rule
+did not match. `docs/ceiling.md` says so in those words, because `negativesReliable` had been read
+as a promise about all of Tier B and it was never that.
+
+**Measured.** The pinned 40-package corpus produces a byte-identical distribution before and after
+— 295 findings, 3 critical, 80 high, median 5.5, 21 of 40 carrying a high or critical. None of the
+three spellings appears in a legitimate published plugin, which is the reason to report them.
