@@ -1,6 +1,6 @@
 {
   "tool": "0.6.0",
-  "measuredOn": "2026-08-18",
+  "measuredOn": "2026-09-02",
   "sample": "the 40 most-starred GitHub repositories tagged `dsh-plugin` that publish a resolvable npm package, as selected in August 2026 — the sample the 0.2 release was scoped against",
   "corpusSize": 40,
   "scanned": 40,

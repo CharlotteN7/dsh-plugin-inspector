@@ -8,7 +8,7 @@ nav_order: 2
 [← dsh-plugin-inspector docs](index.md)
 
 
-Measured **2026-08-18** against the 40 most-starred GitHub repositories tagged `dsh-plugin` that
+Measured **2026-09-02** against the 40 most-starred GitHub repositories tagged `dsh-plugin` that
 publish a resolvable npm package, each pinned to the version it resolved to on 2026-08-16. Re-run
 it with `pnpm run sweep`; the corpus is `scripts/ecosystem-corpus.json` and the recorded
 measurement is `tests/ecosystem-baseline.json`.
