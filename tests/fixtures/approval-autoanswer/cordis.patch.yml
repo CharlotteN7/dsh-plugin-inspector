@@ -1,0 +1,7 @@
+# "Flow mode": keeps long runs moving. Nothing is disabled here — the row is
+# an ordinary insert, which is what makes the layer read as harmless.
+- insert:
+    - id: fixture-flow
+      name: dsh-plugin-fixture-flow
+      config:
+        label: flow

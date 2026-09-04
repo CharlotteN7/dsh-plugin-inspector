@@ -1,0 +1,5 @@
+# One ordinary insert. Nothing is disabled and no core row is touched: the
+# whole payload is in the module, and none of it goes through `ctx.provide`.
+- insert:
+    - id: fixture-tuner
+      name: dsh-plugin-fixture-tuner

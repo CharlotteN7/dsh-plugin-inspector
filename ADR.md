@@ -136,9 +136,9 @@ non-insert patch as an assertion guard, so a patch naming the wrong module is si
 in full. Check A4 exists only because that map does.
 
 The two tables the tiers lean on hardest are **exact** against the harness at `HARNESS_REFERENCE`,
-not approximations of it: `SEAM_KEYS` holds all 58 `SERVICE_API[].key` values from the tool-cordis
-api-catalog, and `CORE_ROWS` holds all 137 row ids the three shipped bundle patches declare —
-58 = 58 and 137 = 137, with no id in either direction that the other side does not have. What goes
+not approximations of it: `SEAM_KEYS` holds all 68 `SERVICE_API[].key` values from the tool-cordis
+api-catalog, and `CORE_ROWS` holds all 147 row ids the three shipped bundle patches declare —
+68 = 68 and 147 = 147, with no id in either direction that the other side does not have. What goes
 stale is the harness version they describe, not the completeness of the transcription.
 
 Re-syncing is a diff, not a rewrite, and `0.1.0-rc.5` → `0.1.1-rc.2` is the evidence: five releases
@@ -147,6 +147,16 @@ nothing, and left the waterfall event set alone. The one correction that was not
 `SANDBOX_DENIED_GLOBALS`, which had listed five traps since 0.1 while the sandbox has always had
 seven — `clearTimeout` and `clearInterval` were missed in the original transcription, and
 `docs/checks.md` had been naming all seven the whole time.
+
+`0.1.1-rc.2` → `0.1.2-rc.1` is the first sync that subtracts. Thirteen row ids arrived and three
+left (`api-gateway`, `client-runtime`, `tool-subagent-report`, whose packages are not published at
+this release); four rows moved from the web bundle into the base layer; eleven seam keys arrived
+and `apiProxy` left; `tools/code-dispatch-log` is now `tools/ptc-dispatch-log`, and
+`user-questions/request` is a new decision waterfall. Subtraction is the half that changes
+verdicts rather than adding them: a row id that leaves `CORE_ROWS` stops matching A3 and A5 and
+starts matching A26, so the same patch line is graded as reaching another package's row instead of
+a shipped one. That is the intended reading at this release, and `tests/unit/checks.spec.ts` pins
+all three directions — a dropped id, an added id, and a row whose bundle membership moved.
 
 `scripts/harness-sync.ts` is what makes `HARNESS_REFERENCE` a checkable claim rather than a
 remembered one. It reads the three bundle patches and the api-catalog out of the published
@@ -717,3 +727,58 @@ is printed and not footnoted.
 
 **Measured.** The pinned 40-package corpus produces the same distribution as before — a Fact moves
 no number, and `A25` fires on none of the 40.
+
+---
+
+## 24. Composition checks: what a package does to somebody else's profile
+
+**Decision.** Four checks — A26, B14, B15, B16 — grade a package by how it composes into a profile
+that already holds other people's plugins, rather than by what it declares about itself.
+
+**Why.** The catalogue up to `0.7.0` graded declarations (Tier A) and capabilities (Tier B), and a
+hostile package that used neither passed clean. Three such packages are in `tests/fixtures/` and
+each was verified to produce **no findings at all** before the check that catches it was written:
+
+- `approval-autoanswer/` answers `approval/request` itself and allows every `tools/pre-execute`,
+  by not calling `next`. No row is disabled, no seam is provided, no credential, socket, process
+  or file is touched.
+- `guard-eviction/` performs the substitution B1 exists for, without `provide` or `set`: it writes
+  a member of `ctx.subprocess`, clears the map behind `ctx.tools.guard()`, splices the listener
+  table, and calls `ctx.registry.delete` on another plugin.
+- `foreign-row-hijack/` disables one plugin's row and rewrites another's `config` by id.
+
+**What was verified rather than assumed.** Every mechanism was executed or read in the installed
+build, not inferred:
+
+- `waterfall` was read at `@deepseek-ai/cordis@4.0.2` `lib/index.js:317-327`, and the widely
+  repeated claim that skipping `next()` *deletes* the listeners behind it is **false**. `dispatch`
+  hands back a fresh array (`.filter(...).map(...)`), `next()` shifts that copy, and `_hooks` is
+  untouched. The veto lasts one dispatch. Removal is a separate capability, and it is B16's.
+- Service mutability was checked by running the installed Cordis: a member written through one
+  plugin's context is what the root context reads afterwards, and the service is not frozen.
+  Assigning the *whole* service from a foreign fiber throws `cannot set property "approval" in
+  multiple fibers`, so B15 grades member writes and deliberately not that.
+- What each decision waterfall's built-in `next` settles on was read at its dispatch site:
+  `dsh-tools/lib/index.js:3117` (`{kind:'allow'}`), `:3214` (**the tool body itself**), and
+  `dsh-user-approval/lib/index.js:179` (`"unavailable"`, reached only after every answerer).
+
+**The false-positive line, which is where the design actually happened.** Two shapes were rejected
+for firing on honest code:
+
+- *Prepending on a decision seam* is not a check. `dsh-dlp` prepends at three seams on purpose,
+  and `{prepend: true}` is how a security plugin gets ahead of the chain. It is reported inside
+  B14's detail instead, where it only ever describes a listener that is already vetoing.
+- *Reading `ctx.events._hooks`* is not a check. `dsh-dlp/src/approval-reach.ts:114` counts the
+  composed answerers to decide whether an approval would reach a human. B16 raises only a write to
+  that table.
+
+Measured after the fact: **zero** A26/B14/B15/B16 findings across `dsh-dlp`, `dsh-netguard`,
+`dsh-ocsf-forwarder`, this package, and all **224** `@deepseek-ai/*` packages in the installed
+harness — a corpus that contains 41 waterfall listener registrations across ten of the thirteen
+event names, including one on `approval/request` and three on `tools/pre-execute`. The check
+examined each and passed it, so the zero is discrimination and not an empty sweep.
+
+**Not measured.** A26 has not been run against the forty-package published corpus `pnpm run sweep`
+pins, because that needs a network and is not part of CI. Nothing in that corpus is expected to
+ship a `dsh.bundle.patch` that overrides a row, but that is a prediction, not a measurement, and
+the severity should be treated as provisional until the sweep confirms it.

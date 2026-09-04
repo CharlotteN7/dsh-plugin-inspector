@@ -17,11 +17,17 @@ import ts from 'typescript'
 import { lineColumn, snippet } from '../files.ts'
 import { scanInjection } from '../injection.ts'
 import {
+  CONTEXT_RECEIVERS,
+  DECISION_EVENTS,
+  DECISION_EVENT_DEFAULTS,
+  MUTATING_METHODS,
   NETWORK_MODULES,
   SEAM_KEYS,
   SECURITY_SEAM_KEYS,
+  TEARDOWN_SURFACES,
   UNMEDIATED_FS_MODULES,
   UNMEDIATED_PROCESS_MODULES,
+  WATERFALL_EVENTS,
 } from '../knowledge.ts'
 import type { Finding, Severity } from '../model.ts'
 import { foldConstantString, isBuiltinModuleGetter } from '../syntax.ts'
@@ -536,6 +542,284 @@ function checkNetworkGlobals(file: ParsedFile, node: ts.Node, accumulator: Accum
   accumulator.networkCall ??= finding
 }
 
+
+/**
+ * The function a listener argument denotes, when this tool can see one.
+ *
+ * Two forms are followed: the function written at the call site, and a name
+ * bound to a function in the same file. That is the same bounded, single-file
+ * name resolution `isRegisteredName` already does for tool definitions, and it
+ * stops at the same place: a listener imported from another module, or built by
+ * a helper, is not resolved and produces no finding rather than a guess.
+ * @param node - the listener argument.
+ * @param file - the parsed file the call is in.
+ * @returns the function, or `null` when it cannot be resolved from this file.
+ */
+function resolveListener(node: ts.Node | undefined, file: ParsedFile): ts.SignatureDeclaration | null {
+  if (node === undefined) return null
+  if (ts.isArrowFunction(node) || ts.isFunctionExpression(node)) return node
+  if (!ts.isIdentifier(node)) return null
+  const wanted = node.text
+  let found: ts.SignatureDeclaration | null = null
+  const visit = (child: ts.Node): void => {
+    if (ts.isFunctionDeclaration(child) && child.name?.text === wanted) found ??= child
+    if (ts.isVariableDeclaration(child) && ts.isIdentifier(child.name) && child.name.text === wanted
+      && child.initializer !== undefined
+      && (ts.isArrowFunction(child.initializer) || ts.isFunctionExpression(child.initializer))) {
+      found ??= child.initializer
+    }
+    ts.forEachChild(child, visit)
+  }
+  ts.forEachChild(file.node, visit)
+  return found
+}
+
+/**
+ * Whether a listener can reach the `next` continuation the waterfall hands it.
+ *
+ * `next` is positional, not named: `EventsService.waterfall` pushes it as the
+ * last dispatch argument, so it is whatever the listener's trailing parameter
+ * is called. A listener that declares no parameter in that position never
+ * receives it, and one that declares it and never mentions it cannot call it.
+ * Either way the chain stops there.
+ *
+ * Every uncertain shape answers true, so the finding needs a listener whose
+ * trailing parameter is a plain name that the body does not contain: a rest
+ * parameter, a destructuring pattern, and any use of `arguments` all count as
+ * reaching it.
+ * @param fn - the resolved listener.
+ * @returns true when the listener can call `next`.
+ */
+function canReachNext(fn: ts.SignatureDeclaration): boolean {
+  const parameters = fn.parameters
+  const last = parameters.at(-1)
+  if (last === undefined) return false
+  if (last.dotDotDotToken !== undefined || !ts.isIdentifier(last.name)) return true
+  const wanted = last.name.text
+  const body = (fn as { body?: ts.Node }).body
+  if (body === undefined) return true
+  let referenced = false
+  const visit = (node: ts.Node): void => {
+    if (ts.isIdentifier(node) && (node.text === wanted || node.text === 'arguments')) referenced = true
+    ts.forEachChild(node, visit)
+  }
+  ts.forEachChild(body, visit)
+  return referenced
+}
+
+/**
+ * Whether a listener registration asks to run ahead of the listeners already
+ * composed on the event.
+ *
+ * Both spellings the event bus accepts: the option object, and the boolean
+ * shorthand `EventsService.on` expands with `options = { prepend: options }`.
+ * @param node - the options argument, when there is one.
+ * @returns true when the registration prepends.
+ */
+function isPrepended(node: ts.Node | undefined): boolean {
+  if (node === undefined) return false
+  if (node.kind === ts.SyntaxKind.TrueKeyword) return true
+  if (!ts.isObjectLiteralExpression(node)) return false
+  return node.properties.some(property => ts.isPropertyAssignment(property)
+    && ts.isIdentifier(property.name) && property.name.text === 'prepend'
+    && property.initializer.kind === ts.SyntaxKind.TrueKeyword)
+}
+
+/** B14 — a waterfall listener that cannot delegate to the rest of the chain. */
+function checkWaterfallVeto(file: ParsedFile, node: ts.CallExpression, accumulator: Accumulator): void {
+  const callee = node.expression
+  if (!ts.isPropertyAccessExpression(callee)) return
+  if (callee.name.text !== 'on' && callee.name.text !== 'once') return
+  const event = literalText(node.arguments[0])
+  if (event === null || !WATERFALL_EVENTS.has(event)) return
+  const listener = resolveListener(node.arguments[1], file)
+  if (listener === null || canReachNext(listener)) return
+  const decides = DECISION_EVENTS.has(event)
+  const prepended = isPrepended(node.arguments[2])
+  const consequence = DECISION_EVENT_DEFAULTS.get(event)
+  accumulator.findings.push(tierB({
+    checkId: 'B14',
+    name: 'waterfall-veto',
+    subject: event,
+    severity: decides ? 'critical' : 'high',
+    title: `Listens on \`${event}\` and never calls \`next\``,
+    detail: `\`${event}\` is dispatched as a Cordis waterfall, which hands every listener a trailing \`next\` and `
+      + 'ends the chain at the first listener that returns without calling it — the remaining listeners and the '
+      + 'harness\'s own built-in behavior both stop for that dispatch. This listener '
+      + (listener.parameters.length === 0
+        ? 'declares no parameters, so it never receives `next` at all.'
+        : `never mentions its trailing parameter \`${(listener.parameters.at(-1)?.name as ts.Identifier).text}\`, `
+          + 'which is the `next` the dispatch supplies.')
+      + (consequence === undefined ? '' : ` Without it, ${consequence}.`)
+      + (prepended
+        ? ' It is registered with `prepend`, which unshifts it onto the listener list, so it claims every dispatch '
+          + 'ahead of every listener composed before this layer mounted.'
+        : '')
+      + ' The veto is per dispatch: nothing is unregistered, and every skipped listener runs again next time.',
+    evidence: at(file, node),
+    bypass: 'calling `next()` on a branch the listener never takes, or passing a listener this tool cannot resolve '
+      + 'from the file it is registered in — one imported from another module, or returned by a helper',
+  }))
+}
+
+/** A member chain read off a plugin context, resolved to the seam it starts at. */
+interface SeamChain {
+  /** The catalogued seam key the chain starts at. */
+  readonly seam: string
+  /** How many members are read after the seam. `ctx.tools.layers` is 1. */
+  readonly depth: number
+}
+
+/**
+ * Read a property chain rooted at a plugin context and report which catalogued
+ * seam it goes through.
+ *
+ * The receiver guard is what keeps this off ordinary code, exactly as it does
+ * in B1 and C2: the chain has to start at a name that denotes a plugin context,
+ * and its first member has to be one of the catalogued seam keys.
+ * @param node - the innermost expression of a property access.
+ * @returns the seam and the depth, or `null` when the chain is not one.
+ */
+function seamChain(node: ts.Node): SeamChain | null {
+  const members: string[] = []
+  let cursor: ts.Node = node
+  while (ts.isPropertyAccessExpression(cursor)) {
+    members.unshift(cursor.name.text)
+    cursor = cursor.expression
+  }
+  // Two roots: a bare context name, and `this.ctx` — the form a plugin written
+  // as a class uses, which the Tier C detached-member check already treats as a
+  // known receiver.
+  if (cursor.kind === ts.SyntaxKind.ThisKeyword && members[0] === 'ctx') members.shift()
+  else if (!ts.isIdentifier(cursor) || !CONTEXT_RECEIVERS.has(cursor.text)) return null
+  const seam = members[0]
+  if (seam === undefined || !SEAM_KEYS.has(seam)) return null
+  return { seam, depth: members.length - 1 }
+}
+
+/**
+ * Build the B15 finding for one write site.
+ * @param file - the parsed file.
+ * @param node - the node to cite.
+ * @param chain - the seam the write goes through.
+ * @param how - the clause naming what the write does.
+ * @returns the finding.
+ */
+function seamWriteFinding(file: ParsedFile, node: ts.Node, chain: SeamChain, how: string): Finding {
+  const critical = SECURITY_SEAM_KEYS.has(chain.seam)
+  return tierB({
+    checkId: 'B15',
+    name: 'seam-internals-write',
+    subject: chain.seam,
+    severity: critical ? 'critical' : 'high',
+    title: `${how} inside the \`${chain.seam}\` capability seam`,
+    detail: `\`${chain.seam}\` is a catalogued core service, and Cordis resolves it to one shared instance for the `
+      + 'whole tree — a write through this package\'s context is what every other consumer reads afterwards. '
+      + 'B1 reads `ctx.provide` / `ctx.set` / `ctx.mixin`, the declared ways to substitute a service, and Cordis '
+      + 'refuses both from a layer that does not own the service: `provide` throws when the key is taken and `set` '
+      + 'throws with "cannot set property in multiple fibers". Writing a member of the object those calls would '
+      + 'have replaced reaches the same substitution and meets neither check.'
+      + (critical ? ' This seam is one whose whole purpose is to constrain what the agent may do.' : ''),
+    evidence: at(file, node),
+    bypass: 'reaching the same object through a value this tool does not track — a local bound to `ctx.tools` and '
+      + 'written through afterwards — or a computed member name, which C2 reports',
+  })
+}
+
+/** B15 — writing into a catalogued seam's own object graph. */
+function checkSeamWrite(file: ParsedFile, node: ts.Node, accumulator: Accumulator): void {
+  if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken
+    && ts.isPropertyAccessExpression(node.left)) {
+    const chain = seamChain(node.left)
+    if (chain !== null && chain.depth >= 1) {
+      accumulator.findings.push(seamWriteFinding(file, node, chain, 'Assigns to a member'))
+    }
+    return
+  }
+  if (ts.isDeleteExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
+    const chain = seamChain(node.expression)
+    if (chain !== null && chain.depth >= 1) {
+      accumulator.findings.push(seamWriteFinding(file, node, chain, 'Deletes a member'))
+    }
+    return
+  }
+  // A mutating call is only a finding when it reaches *past* the service's own
+  // API. `ctx.credentials.set(ref, value)` and `ctx.skills.register(skill)` are
+  // the seam's published methods and sit at depth 0; `ctx.tools.layers.global
+  // .guards.data.clear()` reaches through five members into the map a
+  // `ctx.tools.guard()` deny is filed in.
+  if (!ts.isCallExpression(node) || !ts.isPropertyAccessExpression(node.expression)) return
+  if (!MUTATING_METHODS.has(node.expression.name.text)) return
+  const chain = seamChain(node.expression.expression)
+  if (chain === null || chain.depth < 2) return
+  accumulator.findings.push(seamWriteFinding(
+    file, node, chain, `Calls \`.${node.expression.name.text}()\` on state`,
+  ))
+}
+
+/**
+ * Whether a node sits on the left of an assignment or under a `delete`, which
+ * is what separates writing one of the Cordis bookkeeping tables from reading
+ * it. Reading is something an honest plugin does: `dsh-dlp` counts
+ * `ctx.events._hooks['approval/request']` to decide whether an approval would
+ * reach a human.
+ * @param node - the property access naming the surface.
+ * @returns true when the surface is being written rather than read.
+ */
+function isWriteTarget(node: ts.Node): boolean {
+  let cursor: ts.Node = node
+  for (;;) {
+    // Sources are parsed with `setParentNodes`, and the loop only ascends
+    // through property and element accesses, each of which has a parent — the
+    // statement that would hold a parentless node ends the walk one step below.
+    const parent = cursor.parent
+    if (ts.isDeleteExpression(parent)) return true
+    if (ts.isBinaryExpression(parent) && parent.left === cursor
+      && (parent.operatorToken.kind === ts.SyntaxKind.EqualsToken
+        || parent.operatorToken.kind === ts.SyntaxKind.QuestionQuestionEqualsToken)) return true
+    // The surface is the receiver of a mutating call, either directly
+    // (`_hooks.clear()`) or after an index step (`_hooks[name].splice(0)`),
+    // which reaches the same table through the array it holds.
+    if (ts.isCallExpression(parent) && parent.expression === cursor
+      && ts.isPropertyAccessExpression(cursor)) {
+      return MUTATING_METHODS.has(cursor.name.text)
+    }
+    if (!ts.isPropertyAccessExpression(parent) && !ts.isElementAccessExpression(parent)) return false
+    cursor = parent
+  }
+}
+
+/** B16 — reaching the Cordis bookkeeping that owns other layers' registrations. */
+function checkTeardown(file: ParsedFile, node: ts.Node, accumulator: Accumulator): void {
+  if (!ts.isPropertyAccessExpression(node)) return
+  const outer = node.expression
+  if (!ts.isPropertyAccessExpression(outer)) return
+  if (!ts.isIdentifier(outer.expression) || !CONTEXT_RECEIVERS.has(outer.expression.text)) return
+  const surface = TEARDOWN_SURFACES.find(entry =>
+    entry.service === outer.name.text && entry.member === node.name.text)
+  if (surface === undefined) return
+  if (!surface.readIsEnough && !isWriteTarget(node)) return
+  accumulator.findings.push(tierB({
+    checkId: 'B16',
+    name: 'foreign-registration-teardown',
+    subject: `${surface.service}.${surface.member}`,
+    severity: 'critical',
+    title: `Reaches \`${surface.service}.${surface.member}\`, which owns other layers' registrations`,
+    detail: `\`ctx.${surface.service}.${surface.member}\` is ${surface.effect}. Cordis makes `
+      + `\`ctx.${surface.service}\` an own property of the root context that every child inherits, so reaching it `
+      + 'needs no `inject` declaration and nothing records that this layer did. A guard registered by a security '
+      + 'plugin through `ctx.tools.guard()`, and every listener it composed, are removable this way — which is a '
+      + 'wider reach than any single seam replacement, because it does not substitute a decision, it deletes the '
+      + 'code that would have made one.'
+      + (surface.readIsEnough
+        ? ''
+        : ' Reading this surface is not the finding: an honest plugin counts the listeners on a seam to decide '
+          + 'whether a prompt would reach a human. Only a write is raised.'),
+    evidence: at(file, node),
+    bypass: 'a computed member name, which C2 reports, or reaching the same table through a local bound earlier',
+  }))
+}
+
 /**
  * Run every Tier B check.
  * @param input - the decoded package.
@@ -558,7 +842,10 @@ export function runTierB(input: CheckInput): Finding[] {
         checkSeamReplacement(file, node, accumulator)
         checkSystemPrompt(file, node, accumulator)
         checkNestedMount(file, node, accumulator)
+        checkWaterfallVeto(file, node, accumulator)
       }
+      checkSeamWrite(file, node, accumulator)
+      checkTeardown(file, node, accumulator)
       checkDynamicCode(file, node, accumulator)
       checkCredentialRead(file, node, accumulator)
       checkToolDescription(file, node, accumulator)

@@ -14,13 +14,15 @@
  * Harness version these tables were transcribed from — the version string in
  * the shipped bundles' own `package.json`, which is `dsh`'s own version.
  *
- * Re-verified against `0.1.1-rc.2`, the release npm tags `latest`, by
+ * Re-verified against `0.1.2-rc.1`, the release npm tags `latest`, by
  * extracting each table from the published packages and diffing it against the
- * one here. What moved: six rows inserted by the web bundle, three seam keys,
- * and two sandbox traps this table had never carried. What did not: every row
- * name, every row's bundle membership, and the waterfall event set.
+ * one here. What moved: thirteen row ids the bundles gained against three they
+ * dropped, four rows the base layer inserts that only the web bundle carried,
+ * eleven seam keys against one dropped, and two waterfall events against one
+ * dropped. What did not: the sandbox trap table, the teardown surfaces, and
+ * every `DECISION_EVENT_DEFAULTS` citation, all re-read at this release.
  */
-export const HARNESS_REFERENCE = '0.1.1-rc.2'
+export const HARNESS_REFERENCE = '0.1.2-rc.1'
 
 /** The shipped bundles, each of which is one patch layer over the profile root. */
 export type BundleName = 'base' | 'headless' | 'web-app'
@@ -65,13 +67,11 @@ export const CORE_ROWS: ReadonlyMap<string, CoreRow> = new Map([
   ['agent-instructions', { module: '@deepseek-ai/dsh-agent-instructions', bundles: ['base'] }],
   ['agent-loop', { module: '@deepseek-ai/dsh-agent-loop', bundles: ['base'] }],
   ['agent-presets', { module: '@deepseek-ai/dsh-agent-presets', bundles: ['web-app'] }],
-  ['api-gateway', { module: '@deepseek-ai/dsh-host-apiproxy', bundles: ['web-app'] }],
   ['api-remotes', { module: '@deepseek-ai/dsh-api-remotes', bundles: ['web-app'] }],
   ['approval', { module: '@deepseek-ai/dsh-user-approval', bundles: ['base'] }],
   ['attachment-local', { module: '@deepseek-ai/dsh-attachment-local', bundles: ['base'] }],
   ['bash-sandbox', { module: '@deepseek-ai/dsh-bash-sandbox', bundles: ['base'] }],
   ['client-hmr', { module: '@deepseek-ai/dsh-client-hmr', bundles: ['web-app'] }],
-  ['client-runtime', { module: '@deepseek-ai/dsh-client-runtime', bundles: ['web-app'] }],
   ['code-runtime', { module: '@deepseek-ai/dsh-code-runtime-worker-thread', bundles: ['headless', 'web-app'] }],
   ['command-compact', { module: '@deepseek-ai/dsh-command-compact', bundles: ['base'] }],
   ['command-feedback', { module: '@deepseek-ai/dsh-command-feedback', bundles: ['base'] }],
@@ -82,6 +82,7 @@ export const CORE_ROWS: ReadonlyMap<string, CoreRow> = new Map([
   ['cordis-client-runner', { module: '@deepseek-ai/dsh-cordis-client-runner', bundles: ['web-app'] }],
   ['cordis-host-runner', { module: '@deepseek-ai/dsh-cordis-host-runner', bundles: ['web-app'] }],
   ['credentials', { module: '@deepseek-ai/dsh-credentials-local', bundles: ['base'] }],
+  ['deepseek-llm-api-extensions', { module: '@deepseek-ai/dsh-deepseek-llm-api-extensions', bundles: ['base'] }],
   ['directory-picker', { module: '@deepseek-ai/dsh-host-directory-picker-auto', bundles: ['web-app'] }],
   ['file-reference-local', { module: '@deepseek-ai/dsh-file-reference-local', bundles: ['web-app'] }],
   ['fs-observation-policy', { module: '@deepseek-ai/dsh-fs-observation-policy', bundles: ['base'] }],
@@ -102,34 +103,40 @@ export const CORE_ROWS: ReadonlyMap<string, CoreRow> = new Map([
   ['permission', { module: '@deepseek-ai/dsh-permission-presets', bundles: ['base'] }],
   ['plan-mode', { module: '@deepseek-ai/dsh-plan-mode', bundles: ['base'] }],
   ['plugin-inventory', { module: '@deepseek-ai/dsh-host-plugin-inventory', bundles: ['web-app'] }],
+  ['plugin-package-inventory-deepseek', { module: '@deepseek-ai/dsh-plugin-package-inventory-deepseek', bundles: ['base'] }],
   ['pwsh-sandbox', { module: '@deepseek-ai/dsh-pwsh-sandbox', bundles: ['base'] }],
   ['repeat-tool-reminder', { module: '@deepseek-ai/dsh-repeat-tool-reminder', bundles: ['base'] }],
   ['sandbox', { module: '@deepseek-ai/dsh-sandbox-local', bundles: ['base'] }],
   ['sandbox-policy', { module: '@deepseek-ai/dsh-sandbox-policy', bundles: ['base'] }],
   ['session', { module: '@deepseek-ai/dsh-session', bundles: ['base'] }],
   ['session-checkpoint-policy', { module: '@deepseek-ai/dsh-session-checkpoint-policy', bundles: ['base'] }],
+  ['session-controller', { module: '@deepseek-ai/dsh-api-session-controller', bundles: ['web-app'] }],
+  ['session-log-deepseek', { module: '@deepseek-ai/dsh-session-log-deepseek', bundles: ['base'] }],
   ['session-log-download', { module: '@deepseek-ai/dsh-session-log-export', bundles: ['web-app'] }],
   ['session-persistence-jsonl', { module: '@deepseek-ai/dsh-session-persistence-jsonl', bundles: ['base'] }],
   ['session-projection', { module: '@deepseek-ai/dsh-session-projection', bundles: ['base'] }],
-  ['session-projection-cache', { module: '@deepseek-ai/dsh-session-projection-cache', bundles: ['web-app'] }],
+  ['session-projection-cache', { module: '@deepseek-ai/dsh-session-projection-cache', bundles: ['base'] }],
   ['session-query-sqlite', { module: '@deepseek-ai/dsh-session-query-sqlite', bundles: ['base'] }],
   ['session-reference', { module: '@deepseek-ai/dsh-session-reference', bundles: ['web-app'] }],
   ['session-stats', { module: '@deepseek-ai/dsh-session-stats', bundles: ['web-app'] }],
   ['session-telemetry-otel', { module: '@deepseek-ai/dsh-session-telemetry-otel', bundles: ['base'] }],
   ['session-title', { module: '@deepseek-ai/dsh-session-title', bundles: ['base'] }],
   ['session-title-llm', { module: '@deepseek-ai/dsh-session-title-first-prompt-llm', bundles: ['base'] }],
+  ['session-turn-outline', { module: '@deepseek-ai/dsh-session-turn-outline', bundles: ['web-app'] }],
   ['settings', { module: '@deepseek-ai/dsh-settings-file', bundles: ['base'] }],
+  ['settings-controller', { module: '@deepseek-ai/dsh-api-settings-controller', bundles: ['web-app'] }],
   ['shell-env', { module: '@deepseek-ai/dsh-shell-env', bundles: ['base'] }],
   ['skill', { module: '@deepseek-ai/dsh-skill', bundles: ['base'] }],
   ['skill-badge', { module: '@deepseek-ai/dsh-skill-badge', bundles: ['base'] }],
   ['skill-filesystem', { module: '@deepseek-ai/dsh-skill-filesystem', bundles: ['base'] }],
   ['spill-local', { module: '@deepseek-ai/dsh-spill-local', bundles: ['base'] }],
   ['spill-policy', { module: '@deepseek-ai/dsh-spill-policy', bundles: ['base'] }],
-  ['storage', { module: '@deepseek-ai/dsh-storage', bundles: ['web-app'] }],
-  ['storage-domain', { module: '@deepseek-ai/dsh-storage-domain', bundles: ['web-app'] }],
-  ['storage-json', { module: '@deepseek-ai/dsh-storage-json', bundles: ['web-app'] }],
+  ['storage', { module: '@deepseek-ai/dsh-storage', bundles: ['base'] }],
+  ['storage-domain', { module: '@deepseek-ai/dsh-storage-domain', bundles: ['base'] }],
+  ['storage-json', { module: '@deepseek-ai/dsh-storage-json', bundles: ['base'] }],
   ['subagent', { module: '@deepseek-ai/dsh-subagent', bundles: ['base'] }],
   ['subagent-fork-in-process', { module: '@deepseek-ai/dsh-subagent-fork-in-process', bundles: ['base'] }],
+  ['subagent-model-selection-settings', { module: '@deepseek-ai/dsh-tool-subagent/model-selection-settings', bundles: ['web-app'] }],
   ['subagent-spawn-in-process', { module: '@deepseek-ai/dsh-subagent-spawn-in-process', bundles: ['base'] }],
   ['subprocess', { module: '@deepseek-ai/dsh-subprocess-local', bundles: ['base'] }],
   ['system-prompt', { module: '@deepseek-ai/dsh-system-prompt', bundles: ['base'] }],
@@ -150,7 +157,6 @@ export const CORE_ROWS: ReadonlyMap<string, CoreRow> = new Map([
   ['tool-subagent-control', { module: '@deepseek-ai/dsh-tool-subagent-control', bundles: ['base'] }],
   ['tool-subagent-fork', { module: '@deepseek-ai/dsh-tool-subagent', bundles: ['base'] }],
   ['tool-subagent-list-agents', { module: '@deepseek-ai/dsh-tool-subagent-control/list-agents', bundles: ['base'] }],
-  ['tool-subagent-report', { module: '@deepseek-ai/dsh-tool-subagent-report', bundles: ['base'] }],
   ['tool-todo', { module: '@deepseek-ai/dsh-tool-todo', bundles: ['base'] }],
   ['tool-web', { module: '@deepseek-ai/dsh-tool-web', bundles: ['base'] }],
   ['tool-workflow', { module: '@deepseek-ai/dsh-tool-workflow', bundles: ['base'] }],
@@ -159,8 +165,10 @@ export const CORE_ROWS: ReadonlyMap<string, CoreRow> = new Map([
   ['typert-gateway', { module: '@deepseek-ai/dsh-api-gateway', bundles: ['base'] }],
   ['typert-loader', { module: '@deepseek-ai/dsh-typert-loader', bundles: ['base'] }],
   ['ui-agent-preset', { module: '@deepseek-ai/dsh-client-ui-agent-preset', bundles: ['web-app'] }],
+  ['ui-approval', { module: '@deepseek-ai/dsh-client-ui-approval', bundles: ['web-app'] }],
   ['ui-attachment', { module: '@deepseek-ai/dsh-client-ui-attachment', bundles: ['web-app'] }],
   ['ui-brand-official', { module: '@deepseek-ai/dsh-client-ui-brand-official', bundles: ['web-app'] }],
+  ['ui-chat', { module: '@deepseek-ai/dsh-client-ui-chat', bundles: ['web-app'] }],
   ['ui-commands', { module: '@deepseek-ai/dsh-client-ui-commands', bundles: ['web-app'] }],
   ['ui-conversation', { module: '@deepseek-ai/dsh-client-ui-conversation', bundles: ['web-app'] }],
   ['ui-cordis', { module: '@deepseek-ai/dsh-client-ui-cordis', bundles: ['web-app'] }],
@@ -175,6 +183,8 @@ export const CORE_ROWS: ReadonlyMap<string, CoreRow> = new Map([
   ['ui-plan', { module: '@deepseek-ai/dsh-client-ui-plan', bundles: ['web-app'] }],
   ['ui-reference', { module: '@deepseek-ai/dsh-client-ui-reference', bundles: ['web-app'] }],
   ['ui-renderer', { module: '@deepseek-ai/dsh-client-ui-renderer', bundles: ['web-app'] }],
+  ['ui-schedule', { module: '@deepseek-ai/dsh-client-ui-schedule', bundles: ['web-app'] }],
+  ['ui-session', { module: '@deepseek-ai/dsh-client-ui-session', bundles: ['web-app'] }],
   ['ui-settings', { module: '@deepseek-ai/dsh-client-ui-settings', bundles: ['web-app'] }],
   ['ui-settings-general', { module: '@deepseek-ai/dsh-client-ui-settings-general', bundles: ['web-app'] }],
   ['ui-settings-models', { module: '@deepseek-ai/dsh-client-ui-settings-models', bundles: ['web-app'] }],
@@ -191,12 +201,14 @@ export const CORE_ROWS: ReadonlyMap<string, CoreRow> = new Map([
   ['ui-workspace', { module: '@deepseek-ai/dsh-client-ui-workspace', bundles: ['web-app'] }],
   ['user-questions', { module: '@deepseek-ai/dsh-user-questions', bundles: ['base'] }],
   ['web', { module: '@deepseek-ai/dsh-web', bundles: ['base'] }],
+  ['web-fetch-http', { module: '@deepseek-ai/dsh-web-fetch-http', bundles: ['base'] }],
   ['web-runtime', { module: '@deepseek-ai/dsh-web-app', bundles: ['web-app'] }],
   ['web-search-deepseek', { module: '@deepseek-ai/dsh-web-search-deepseek', bundles: ['base'] }],
   ['web-startup', { module: '@deepseek-ai/dsh-web-app/startup', bundles: ['web-app'] }],
   ['webserver', { module: '@deepseek-ai/dsh-host-webserver', bundles: ['web-app'] }],
   ['workflow-worker-thread', { module: '@deepseek-ai/dsh-workflow-worker-thread', bundles: ['base'] }],
   ['workspace', { module: '@deepseek-ai/dsh-workspace', bundles: ['web-app'] }],
+  ['workspace-controller', { module: '@deepseek-ai/dsh-api-workspace-controller', bundles: ['web-app'] }],
 ])
 
 /** Row ids the shipped bundles define. */
@@ -236,31 +248,115 @@ export const SECURITY_ROW_IDS: ReadonlyMap<string, string> = new Map([
  * replaces a core service for every consumer in its scope.
  */
 export const SEAM_KEYS: ReadonlySet<string> = new Set([
-  'agentDefaultModel', 'agentLoop', 'agentPresets', 'agents', 'agentTeams', 'apiProxy', 'approval',
-  'attachments', 'authorization', 'clientModules', 'codeRuntime', 'commands', 'compaction',
-  'credentials', 'directoryPicker', 'e2b', 'fileReferences', 'fs', 'goals', 'invariants', 'jobs',
-  'llm', 'lsp', 'messageFeedback', 'permissionPresets', 'planMode', 'sandbox', 'sandboxPolicy',
-  'sessionPersistence', 'sessionProjectionCache', 'sessionProjections', 'sessionQuery',
-  'sessionReferenceResolver', 'sessions', 'sessionTelemetry', 'sessionTitle', 'settings',
-  'shell', 'shellEnv', 'skills', 'spillStore', 'storage', 'storageDomain', 'subagents',
-  'subprocess', 'systemPrompt', 'terminals', 'timer', 'tokenMeter', 'toolResultPruner',
-  'tools', 'typert', 'typertGateway', 'userQuestions', 'web', 'webServer', 'workflowEngine',
-  'workspaceRegistry',
+  'agentDefaultModel', 'agentLoop', 'agentPresets', 'agents', 'agentTeams', 'approval', 'attachments',
+  'authorization', 'clientModules', 'codeRuntime', 'commands', 'compaction', 'credentials',
+  'credentialsController', 'deepseekLlmApiExtensions', 'directoryPicker', 'directoryPickerController',
+  'e2b', 'fileReferences', 'fs', 'goals', 'inspector', 'invariants', 'jobs', 'llm', 'lsp',
+  'messageFeedback', 'permissionPresets', 'planMode', 'sandbox', 'sandboxPolicy', 'sessionController',
+  'sessionFileReferences', 'sessionPersistence', 'sessionProjectionCache', 'sessionProjections',
+  'sessionQuery', 'sessionReferenceResolver', 'sessions', 'sessionSkillCatalog', 'sessionTelemetry',
+  'sessionTitle', 'settings', 'settingsController', 'shell', 'shellEnv', 'skills', 'spillStore', 'storage',
+  'storageDomain', 'subagentModelSelection', 'subagents', 'subprocess', 'systemPrompt', 'terminals',
+  'timer', 'tokenMeter', 'toolResultPruner', 'tools', 'typert', 'typertGateway', 'userQuestions', 'web',
+  'webhookRuntime', 'webServer', 'workflowEngine', 'workspaceController', 'workspaceRegistry',
 ])
 
 /**
  * The subset of {@link SEAM_KEYS} whose replacement removes a constraint.
  *
- * `authorization` joined the catalogue in `0.1.1-rc.2`: it is the registry of
- * flows that obtain a credential through a conversation with the user, so
- * providing it means owning that conversation. That is the same class of
- * substitution as `credentials`, which this set already holds. The other two
- * keys the release added are not: `fileReferences` decides which paths are
- * offered for completion and `agentTeams` is the team form of `subagents`,
- * which is deliberately not here either.
+ * `authorization` is the registry of flows that obtain a credential through a
+ * conversation with the user, so providing it means owning that conversation.
+ * That is the same class of substitution as `credentials`, which this set
+ * already holds. `fileReferences` decides which paths are offered for
+ * completion and `agentTeams` is the team form of `subagents`, which is
+ * deliberately not here either, so neither of those is in this set.
+ *
+ * Seven of the eleven keys `0.1.2-rc.1` adds are Remote controllers: host
+ * services that own one `ctx.remote.*` namespace the browser client calls
+ * across the wire. A controller belongs here only when the traffic a
+ * substitution redirects to it carries a secret, an execution boundary, or a
+ * decision. A controller that forwards its seam's own verbs and adds a wire
+ * failure vocabulary does not, because the seam it fronts is reachable from
+ * `ctx` without substituting anything.
+ *
+ * Included:
+ * - `credentialsController` is what a browser configuration page calls to store
+ *   a credential. `set(ref, value)` receives the plaintext secret and hands it
+ *   to `ctx.credentials`
+ *   (`@deepseek-ai/dsh-api-settings-controller/lib/index.js:171`), and
+ *   `projectCredentialInfo` at `lib/index.js:78` is what holds a `describe`
+ *   answer to the three fields `CredentialInfo` declares. A layer that provides
+ *   it takes both halves: every secret typed into the settings page, and the
+ *   freedom to answer a read with the stored value.
+ * - `settingsController` passes `redactSecrets: true` on every remote read
+ *   (`@deepseek-ai/dsh-api-settings-controller/lib/index.js:429` and `:544`),
+ *   which is what keeps a `role('secret')` field out of a settings response;
+ *   `@deepseek-ai/dsh-web-search-deepseek/lib/index.js:245` declares one, an
+ *   `apiKey`. Its `update`, `replace` and `mutate` verbs carry that same field's
+ *   value in plaintext from the configuration page. Providing it puts the layer
+ *   on both directions of a secret's path.
+ * - `sessionController` resolves each new Session's cwd from the wire request
+ *   and hands it to `ensureSession`
+ *   (`@deepseek-ai/dsh-api-session-controller/lib/index.js:574`), and
+ *   `@deepseek-ai/dsh-sandbox-policy` resolves that immutable cwd as the
+ *   `workspace-write` root the enforcing filesystem, bash and terminal backends
+ *   fence against. Its `prompt` verb builds the message admitted to the agent
+ *   under `source.kind: 'user'` (`lib/index.js:731`). Providing it chooses the
+ *   sandbox root for every session created from the client, and the text that
+ *   reaches the model under the user's own source label.
+ * - `webhookRuntime` is what a provider adapter such as
+ *   `@deepseek-ai/dsh-webhook-github` dispatches verified deliveries into. Its
+ *   one built-in action creates a Session from a rule result whose fields
+ *   include `workspacePath`, `permissionPreset` and `prompt`
+ *   (`@deepseek-ai/dsh-webhook/lib/types/types.d.ts`), and
+ *   `createWebhookSession` applies that preset through
+ *   `ctx.permissionPresets.set` before admitting the prompt
+ *   (`@deepseek-ai/dsh-webhook/lib/types/session.js:94`, `:117`, `:120`).
+ *   Providing it picks the approval and sandbox preset for an agent started by
+ *   a remote delivery with no user present.
+ *
+ * Excluded:
+ * - `workspaceController` forwards `request.path` to
+ *   `ctx.workspaceRegistry.create` unchanged and adds an ordering queue and
+ *   error mapping (`@deepseek-ai/dsh-api-workspace-controller/lib/index.js:196`
+ *   to `:212`). The registry it fronts is `workspaceRegistry`, which is not
+ *   here, so the substitution reaches nothing the seam does not already offer.
+ * - `directoryPickerController` is three delegations to
+ *   `ctx.directoryPicker.capability()` behind a check that refuses a verb the
+ *   composed backend does not serve
+ *   (`@deepseek-ai/dsh-api-workspace-controller/lib/index.js:423` to `:470`).
+ *   Path fencing lives in the backend, and `directoryPicker` is not here.
+ * - `sessionFileReferences` is the Remote adapter over `fileReferences`, which
+ *   is excluded above for the same reason: the traffic is path candidates
+ *   offered for completion.
+ * - `sessionSkillCatalog` answers with `SkillListValue`, declared as the list
+ *   for one Session's human-facing composer
+ *   (`@deepseek-ai/dsh-api-session-controller/lib/types/types.d.ts:213` to
+ *   `:227`), and its only consumer in this release is the client skill picker
+ *   (`@deepseek-ai/dsh-client-ui-skill/lib/client.js:236`). Skill text reaches a
+ *   model through `ctx.skills.list()` in
+ *   `@deepseek-ai/dsh-tool-skill/lib/index.js:145`, which is the `skills` seam.
+ * - `subagentModelSelection` is a settings owner answering `{ enabled,
+ *   allowedModels }`, sampled when an Agent receives its delegation tools. Model
+ *   routing is `llm` and delegation is `subagents`; neither is here.
+ * - `deepseekLlmApiExtensions` hands a substitute the serialized request body
+ *   and merges the fields it returns, but
+ *   `@deepseek-ai/dsh-llm-deepseek/lib/index.js:1748` rejects any extension
+ *   field colliding with the base request, so `messages`, `tools` and `model`
+ *   are not writable through it. The constraint is in the adapter, not the
+ *   registry the substitution replaces.
+ * - `inspector` is declared by the catalogue and implemented by no shipped
+ *   package: in `0.1.2-rc.1` the key, `InspectorJsonValue` and
+ *   `CordisRuntimeTreeReader` occur only in
+ *   `@deepseek-ai/dsh-tool-cordis/lib/index.js`, and nothing provides or reads
+ *   `ctx.inspector`. No composed row enforces anything through it, so a
+ *   substitution displaces nothing. This is the one entry decided from the
+ *   catalogue rather than from an implementation; a release that ships one is a
+ *   reason to decide it again.
  */
 export const SECURITY_SEAM_KEYS: ReadonlySet<string> = new Set([
   'approval', 'authorization', 'sandbox', 'sandboxPolicy', 'permissionPresets', 'credentials',
+  'credentialsController', 'settingsController', 'sessionController', 'webhookRuntime',
   'subprocess', 'shell', 'fs', 'tools', 'agentLoop', 'sessionPersistence', 'sessionTelemetry',
   'invariants',
 ])
@@ -272,20 +368,32 @@ export const SECURITY_SEAM_KEYS: ReadonlySet<string> = new Set([
  *
  * Note there is no `fs/read-intent` — the intent family is write and edit only.
  *
- * Unchanged in `0.1.1-rc.2`. The catalogue's event set grew by four and lost
- * one, but every addition carries `mode: 'emit'`, and only `mode: 'waterfall'`
- * hands a listener the trailing `next` this set is about.
+ * `0.1.2-rc.1` renames `tools/code-dispatch-log` to `tools/ptc-dispatch-log`
+ * and adds `user-questions/request`. Both replace content in a durable log copy
+ * or answer a pending request; neither is an `emit` event, so both hand a
+ * listener the trailing `next`.
  */
 export const WATERFALL_EVENTS: ReadonlySet<string> = new Set([
   'agent/pre-step', 'agent/request', 'agent/request-error', 'approval/request',
   'fs/edit-intent', 'fs/write-intent', 'llm/stream', 'session-telemetry/record',
-  'system-prompt/assemble', 'tools/code-dispatch-log', 'tools/execute',
-  'tools/post-execute', 'tools/pre-execute',
+  'system-prompt/assemble', 'tools/execute', 'tools/post-execute',
+  'tools/pre-execute', 'tools/ptc-dispatch-log', 'user-questions/request',
 ])
 
-/** Waterfall events whose short-circuit removes a decision the user would otherwise make. */
+/**
+ * Waterfall events whose short-circuit removes a decision the user would
+ * otherwise make.
+ *
+ * `user-questions/request` is here for the same reason `approval/request` is:
+ * `ctx.userQuestions` pauses a tool call until a human answers, and the
+ * answerers that put the question on a screen are listeners in the chain rather
+ * than the inner callback (`@deepseek-ai/dsh-user-questions/lib/index.js:69`).
+ * A listener that returns an answer without calling `next()` answers on the
+ * user's behalf and the question is never shown.
+ */
 export const DECISION_EVENTS: ReadonlySet<string> = new Set([
   'approval/request', 'tools/pre-execute', 'tools/execute', 'fs/write-intent', 'fs/edit-intent',
+  'user-questions/request',
 ])
 
 /**
@@ -461,3 +569,150 @@ export const HARNESS_INERT_CALLS: ReadonlySet<string> = new Set([
  * in code, and it is plain YAML.
  */
 export const SERVICE_REMAPPING_FIELDS: readonly string[] = ['isolate', 'intercept']
+
+/**
+ * How a Cordis waterfall listener delegates, and what happens when it does not.
+ *
+ * Read out of the installed `@deepseek-ai/cordis@4.0.2` build,
+ * `lib/index.js:317-327`:
+ *
+ * ```js
+ * waterfall(...args) {
+ *   const cbs = this.dispatch("waterfall", args);
+ *   const inner = args.pop();
+ *   const next = () => { return (cbs.shift() ?? inner)(...args); };
+ *   args.push(next);
+ *   return next();
+ * }
+ * ```
+ *
+ * `next` is the trailing argument every listener receives, and `inner` is the
+ * harness's own built-in behavior. A listener that returns without calling
+ * `next()` therefore ends the chain: neither the listeners still in `cbs` nor
+ * `inner` run.
+ *
+ * The scope of that is one dispatch, not the registry. `dispatch()` builds
+ * `cbs` with `.filter(…).map(…)`, which allocates, so `this._hooks[name]` is
+ * never touched and every skipped listener is registered and runs normally on
+ * the next dispatch. The precise word is veto, not removal — Cordis's own
+ * JSDoc at `lib/index.js:311-313` says "vetoes the rest of the chain, including
+ * the built-in behavior". Removal is a different capability with a different
+ * reach, and it has its own table below.
+ */
+export const WATERFALL_NEXT_PARAMETER = 'next'
+
+/**
+ * What each decision waterfall's built-in `next` settles on when no listener
+ * claims the dispatch, transcribed from the installed harness `0.1.2-rc.1`.
+ *
+ * This is what a listener that never calls `next()` replaces. The inner
+ * callback is the last argument at each site:
+ * - `tools/pre-execute` — `@deepseek-ai/dsh-tools/lib/index.js:3117`,
+ *   `() => Promise.resolve({ kind: "allow" })`
+ * - `tools/execute` — `dsh-tools/lib/index.js:3214`,
+ *   `() => this.dispatchToolBody(mutableExec)`, so vetoing it substitutes the
+ *   body of the tool call itself
+ * - `approval/request` — `@deepseek-ai/dsh-user-approval/lib/index.js:179`,
+ *   `() => Promise.resolve("unavailable")`, and the surface that would ask the
+ *   user is one of the listeners in the chain rather than the inner callback
+ * - `user-questions/request` —
+ *   `@deepseek-ai/dsh-user-questions/lib/index.js:67`, the `noAnswerer`
+ *   callback passed at `:69`, which rejects with a `UserQuestionError` carrying
+ *   code `NO_PROVIDER`
+ *
+ * The three tables in this module that name events (`WATERFALL_EVENTS`,
+ * `DECISION_EVENTS`, and this one) are keyed to {@link HARNESS_REFERENCE}.
+ */
+export const DECISION_EVENT_DEFAULTS: ReadonlyMap<string, string> = new Map([
+  ['approval/request', 'the request falls through to `"unavailable"` only after every composed answerer — '
+    + 'including the surface that would ask the user — has had the dispatch'],
+  ['tools/pre-execute', 'the gate settles on `{ kind: "allow" }` after every other listener, and only then are '
+    + '`ctx.tools.guard()` denials consulted'],
+  ['tools/execute', 'the tool body itself runs'],
+  ['fs/write-intent', 'the write intent reaches the policy rows that decide it'],
+  ['fs/edit-intent', 'the edit intent reaches the policy rows that decide it'],
+  ['user-questions/request', 'the request rejects with `NO_PROVIDER` only after every composed answerer — '
+    + 'including the one that puts the question on the user\'s screen — has had the dispatch'],
+])
+
+/**
+ * Receivers whose members name a plugin context.
+ *
+ * The same set the Tier C detached-member check guards on, minus `process`:
+ * a seam is read off the context, never off `process`.
+ */
+export const CONTEXT_RECEIVERS: ReadonlySet<string> = new Set([
+  'ctx', 'context', 'globalThis', 'global',
+])
+
+/**
+ * Array and collection methods that change the receiver rather than reading it.
+ *
+ * Used to tell a write into a service's internals from a read of them. The
+ * distinction is not academic: `dsh-dlp` reads
+ * `ctx.events._hooks['approval/request']?.length` to decide whether an ask
+ * would reach a human, which is an honest use of the same property a hostile
+ * layer splices.
+ */
+export const MUTATING_METHODS: ReadonlySet<string> = new Set([
+  'splice', 'push', 'pop', 'shift', 'unshift', 'fill', 'sort', 'reverse', 'copyWithin',
+  'clear', 'delete', 'set', 'add',
+])
+
+/** One Cordis bookkeeping surface that owns other plugins' registrations. */
+export interface TeardownSurface {
+  /** The member read off the context, e.g. `events`. */
+  readonly service: string
+  /** The member read off that, e.g. `_hooks`. */
+  readonly member: string
+  /**
+   * True when merely naming the surface is the finding. False when only a
+   * write counts, because reading it is something an honest plugin does.
+   */
+  readonly readIsEnough: boolean
+  /** What reaching it does, phrased for a report. */
+  readonly effect: string
+}
+
+/**
+ * Cordis internals through which one plugin removes another plugin's
+ * registrations. Read from the installed `@deepseek-ai/cordis@4.0.2` build.
+ *
+ * None of these is guarded by ownership. `ctx.events`, `ctx.registry` and
+ * `ctx.reflect` are own properties of the root context inherited by every
+ * child, so no `inject` declaration is needed to reach any of them.
+ */
+export const TEARDOWN_SURFACES: readonly TeardownSurface[] = [
+  {
+    service: 'events',
+    member: '_hooks',
+    readIsEnough: false,
+    effect: 'the listener table every layer\'s `ctx.on()` registration is stored in (`lib/index.js:230`, '
+      + '`_hooks = {}`, appended to by `register` at `lib/index.js:336-345`). Splicing an entry out removes that '
+      + 'listener permanently, and the owning layer\'s own disposer then silently does nothing. This is a stronger '
+      + 'reach than a waterfall veto, which only skips listeners for one dispatch',
+  },
+  {
+    service: 'events',
+    member: 'unregister',
+    readIsEnough: true,
+    effect: 'the public removal path for one listener, by callback identity (`lib/index.js:353-359`). It takes the '
+      + 'listener list and a callback and splices, with no check that the caller owns either',
+  },
+  {
+    service: 'registry',
+    member: 'delete',
+    readIsEnough: true,
+    effect: 'disposal of every fiber a plugin owns (`lib/index.js:1564-1571`: `for (const fiber of runtime.fibers) '
+      + 'fiber.dispose();`). It takes no ownership check, so one layer can unload another layer outright — '
+      + 'including a security layer whose guards and listeners then stop existing',
+  },
+  {
+    service: 'reflect',
+    member: 'store',
+    readIsEnough: false,
+    effect: 'the service implementation table keyed by isolate symbol (`lib/index.js:726`, written by `provide` at '
+      + '`lib/index.js:813`). `provide` throws when a key is already taken and `set` throws across fibers; writing '
+      + 'this object directly is the path around both throws',
+  },
+]

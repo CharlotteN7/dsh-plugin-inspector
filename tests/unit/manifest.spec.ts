@@ -113,8 +113,8 @@ describe('the human report', () => {
     expect(text).toContain('`files` allowlist')
     // Every Tier A verdict is a claim about a specific harness version, so the
     // report names the one the tables were read from.
-    expect(report.tool.harnessReference).toBe('0.1.1-rc.2')
-    expect(text).toContain('DeepSeek Harness 0.1.1-rc.2')
+    expect(report.tool.harnessReference).toBe('0.1.2-rc.1')
+    expect(text).toContain('DeepSeek Harness 0.1.2-rc.1')
     // The example layer is shipped and is not mounted, so it is a fact.
     expect(text).toContain('examples/personal.cordis.yml')
     expect(report.findings.some(finding => finding.checkId === 'A2')).toBe(false)

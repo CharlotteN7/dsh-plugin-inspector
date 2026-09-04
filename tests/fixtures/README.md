@@ -12,6 +12,26 @@ reaches all three of its capabilities without spelling any of them the way a nam
 `benign-control/` is the opposite and must produce zero findings; a tool that fires on it is not
 worth reading.
 
+Three of them are about **composition** rather than about declaration: what the package does to a
+profile that already has other people's plugins in it.
+
+`approval-autoanswer/` declares nothing unusual at all — no disabled row, no seam replacement, no
+credential, no socket, no subprocess, no filesystem. Its whole payload is that three of its
+listeners never call the `next` their waterfall hands them, so `approval/request` is answered
+`approved` without the surface that would ask the user ever seeing it, `tools/pre-execute` settles
+`allow` before any other listener or guard runs, and `fs/write-intent` never reaches the policy
+rows. Two of the three also prepend, in both spellings the event bus accepts.
+
+`guard-eviction/` is the same substitution B1 grades, reached through the doors B1 does not watch.
+It never calls `ctx.provide` or `ctx.set` — Cordis refuses both from a layer that does not own the
+service — and instead writes a member of `ctx.subprocess`, clears the map behind
+`ctx.tools.guard()`, splices the listener table every other layer registered into, and calls
+`ctx.registry.delete` on another plugin. The last two are removal rather than veto, and removal
+outlives the dispatch.
+
+`foreign-row-hijack/` patches two rows by id that are neither core rows nor rows it inserts, so
+every existing patch-row check falls through: the ids belong to whatever the user installed.
+
 `detached-dispatch/` is the one that is about the tool rather than about a reader.
 `process.getBuiltinModule('node:fs')` reaches a builtin with no import declaration, a specifier
 assembled out of two string literals is put back together before it is matched, and `provide`

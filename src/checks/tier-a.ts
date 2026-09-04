@@ -37,7 +37,7 @@ import type { CheckInput } from './input.ts'
  * whatever YAML that library happens to ship is inert bytes.
  */
 const PATCH_ROW_CHECKS: ReadonlySet<string> = new Set([
-  'A2', 'A3', 'A4', 'A5', 'A6', 'A7', 'A8', 'A9', 'A10', 'A15', 'A17', 'A19', 'A23',
+  'A2', 'A3', 'A4', 'A5', 'A6', 'A7', 'A8', 'A9', 'A10', 'A15', 'A17', 'A19', 'A23', 'A26',
 ])
 
 /** Loader builtins that are entry names but not resolvable npm packages. */
@@ -792,6 +792,70 @@ function checkProvenance(input: CheckInput): Finding[] {
 }
 
 /**
+ * A26 — a patch row that modifies a row this package neither ships nor shares
+ * with the harness.
+ *
+ * A2, A3, A5 and A19 all key on {@link CORE_ROWS}: an override whose `id` is
+ * not a row the shipped bundles define falls through every one of them and
+ * produces nothing. But the composed profile is not only the core rows. It also
+ * holds the rows the user wrote in their own layer and the rows every other
+ * installed plugin inserted, and `applyEntryPatches` matches by `id` alone with
+ * no notion of who owns the row. So `- id: some-other-plugin` / `disabled:
+ * true` in this package's layer switches that package off, and a `config:`
+ * override replaces its configuration wholesale, since a patch override is a
+ * shallow whole-value replacement rather than a merge.
+ *
+ * The check is a set difference, which is what keeps it decidable: an id that
+ * is neither a core row nor a row this same layer inserts belongs to somebody
+ * else. Two kinds of package legitimately rewrite rows they did not insert and
+ * are excluded — the harness's own bundles, which is what composing a surface
+ * bundle is, and a package that declares `dsh.profile.bundles`, which is a
+ * profile assembling other people's layers on purpose and is reported as such
+ * by A20.
+ */
+function checkForeignRows(input: CheckInput): Finding[] {
+  if (isHarnessBundle(input)) return []
+  if ((input.manifest.dsh.profile?.bundles ?? []).length > 0) return []
+  const findings: Finding[] = []
+  for (const patch of input.patches) {
+    const own = new Set(patch.inserts.map(row => row.id).filter(id => id !== null))
+    for (const override of patch.overrides) {
+      if (override.overriddenKeys.length === 0) continue
+      if (CORE_ROWS.has(override.id) || own.has(override.id)) continue
+      const switchedOff = override.overriddenKeys.includes('disabled') && Boolean(override.disabled)
+      const rewritten = override.overriddenKeys.filter(key => key !== 'disabled')
+      findings.push(tierA({
+        checkId: 'A26',
+        name: 'foreign-row-modified',
+        subject: override.id,
+        severity: 'high',
+        title: switchedOff
+          ? `Patch layer disables the row "${override.id}", which this package does not ship`
+          : `Patch layer rewrites ${rewritten.map(key => `\`${key}\``).join(', ')} on the row `
+            + `"${override.id}", which this package does not ship`,
+        detail: `"${override.id}" is neither a row the shipped bundles define nor one this layer inserts, so it `
+          + 'belongs to the user\'s own layer or to another installed plugin. `applyEntryPatches` matches rows by '
+          + '`id` alone and has no notion of which layer owns one, so this patch reaches into that package\'s row '
+          + 'and '
+          + (switchedOff
+            ? 'stops it running. Whatever that package contributed — a guard, a listener, an audit sink — is not '
+              + 'composed into the profile, and the user\'s own configuration still says it is installed.'
+            : 'replaces those keys. An override is a shallow whole-value replacement rather than a merge, so an '
+              + 'overridden `config` discards every key that package shipped and keeps only what is written here.')
+          + ' If the row id is not present in the composed profile the patch is simply inert, which is the benign '
+          + 'reading and the one a reader should check first.',
+        evidence: {
+          file: patch.file,
+          path: switchedOff ? `${override.path}.disabled` : override.path,
+          snippet: snippet(override.overriddenKeys.join(', ')),
+        },
+      }))
+    }
+  }
+  return findings
+}
+
+/**
  * Run every Tier A check.
  *
  * The filter is the guard: a package that declares no `dsh.bundle.patch`
@@ -807,6 +871,7 @@ export function runTierA(input: CheckInput): Finding[] {
     ...checkNativeBuild(input),
     ...checkDisabledRows(input),
     ...checkOverriddenRows(input),
+    ...checkForeignRows(input),
     ...checkExpressions(input),
     ...checkPatchFailures(input),
     ...checkInsertedModules(input),

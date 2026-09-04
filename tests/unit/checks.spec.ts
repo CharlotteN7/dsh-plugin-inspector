@@ -552,12 +552,22 @@ describe('what Tier C says about the file it could not read', () => {
 })
 
 describe('the rows and modules a patch layer names but the harness does not own', () => {
-  it('says nothing about disabling a row no shipped bundle defines', async () => {
-    // The row is this package's own or another plugin's. Switching it off takes
-    // nothing away from the profile, and reporting it would fire on the
-    // ordinary case of a layer managing its own rows.
-    const report = await inspect(mounted('- id: not-a-core-row\n  disabled: true\n'))
+  it('says nothing about a layer disabling a row it inserts itself', async () => {
+    // Managing your own rows is not a finding, and a check that cannot tell
+    // that from reaching into somebody else's row is unusable. The separator is
+    // the layer's own insert list; the foreign half is A26, in
+    // `tests/unit/composition.spec.ts`.
+    const report = await inspect(mounted(
+      '- insert:\n    - id: not-a-core-row\n      name: layer\n\n- id: not-a-core-row\n  disabled: true\n',
+    ))
     expect(report.findings.filter(finding => finding.tier === 'A' && finding.checkId !== 'A13')).toEqual([])
+  })
+
+  it('reports disabling a row no shipped bundle defines and this layer does not insert', async () => {
+    const report = await inspect(mounted('- id: not-a-core-row\n  disabled: true\n'))
+    expect(withCheck(report, 'A2')).toEqual([])
+    expect(withCheck(report, 'A3')).toEqual([])
+    expect(onlyCheck(report, 'A26').subject).toBe('not-a-core-row')
   })
 
   it('says nothing about re-enabling a row no shipped bundle defines', async () => {
@@ -766,5 +776,43 @@ describe('an inserted row that substitutes a service for its subtree', () => {
     const remap = onlyCheck(report, 'A23')
     expect(remap.severity).toBe('critical')
     expect(remap.detail).toContain('constrain what the agent may do')
+  })
+})
+
+describe('a row id whose membership of the shipped bundles moved in 0.1.2-rc.1', () => {
+  // `CORE_ROWS` decides which of A3, A5, A19 and A26 a patch override lands in,
+  // and at what severity. These cases pin the three kinds of movement the
+  // release produced, because each one silently re-grades an override that the
+  // previous table already had a verdict for.
+
+  it('reports a row the release dropped as somebody else\'s row rather than a core one', async () => {
+    // `api-gateway`, `client-runtime` and `tool-subagent-report` are gone from
+    // all three bundle patches and their packages are not published at
+    // 0.1.2-rc.1, so an override naming one reaches the user's own layer or
+    // another plugin's row.
+    const report = await inspect(mounted('- id: api-gateway\n  disabled: true\n'))
+    expect(withCheck(report, 'A3')).toEqual([])
+    const foreign = onlyCheck(report, 'A26')
+    expect(foreign.severity).toBe('high')
+    expect(foreign.subject).toBe('api-gateway')
+  })
+
+  it('reports a row the release added as a core row rather than a foreign one', async () => {
+    const report = await inspect(mounted('- id: session-controller\n  disabled: true\n'))
+    expect(withCheck(report, 'A26')).toEqual([])
+    const disabled = onlyCheck(report, 'A3')
+    expect(disabled.severity).toBe('medium')
+    expect(disabled.detail).toContain('@deepseek-ai/dsh-web-app')
+  })
+
+  it('grades a row that moved from the web bundle into the base layer as a base row', async () => {
+    // `storage`, `storage-domain`, `storage-json` and `session-projection-cache`
+    // are inserted by `@deepseek-ai/dsh-base` at this release, so every profile
+    // mounts them rather than only the ones that mount the web surface.
+    const report = await inspect(mounted('- id: storage\n  disabled: true\n'))
+    const disabled = onlyCheck(report, 'A3')
+    expect(disabled.severity).toBe('high')
+    expect(disabled.detail).toContain('@deepseek-ai/dsh-base')
+    expect(disabled.detail).not.toContain('surface bundle')
   })
 })

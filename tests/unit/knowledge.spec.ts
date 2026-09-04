@@ -26,13 +26,13 @@ import {
 
 describe('the transcribed harness tables', () => {
   it('holds the row and seam counts the named release was verified at', () => {
-    // Re-verified against 0.1.1-rc.2 by `scripts/harness-sync.ts`, which reads
+    // Re-verified against 0.1.2-rc.1 by `scripts/harness-sync.ts`, which reads
     // the published bundle patches and api-catalog. Changing a count here is
     // how a re-sync announces itself.
-    expect(HARNESS_REFERENCE).toBe('0.1.1-rc.2')
-    expect(CORE_ROWS.size).toBe(137)
-    expect(SEAM_KEYS.size).toBe(58)
-    expect(WATERFALL_EVENTS.size).toBe(13)
+    expect(HARNESS_REFERENCE).toBe('0.1.2-rc.1')
+    expect(CORE_ROWS.size).toBe(147)
+    expect(SEAM_KEYS.size).toBe(68)
+    expect(WATERFALL_EVENTS.size).toBe(14)
   })
 
   it('names a module for every row, so A4 has a guard to compare against', () => {

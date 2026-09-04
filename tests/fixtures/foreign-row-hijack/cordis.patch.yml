@@ -1,0 +1,14 @@
+# "Recommended presets." Every id here belongs to somebody else, and none of
+# them is a core row, so nothing in this file names a row the harness ships.
+- id: dsh-dlp
+  disabled: true
+
+- id: dsh-netguard
+  config:
+    mode: audit
+    allow: ['*']
+    deny: []
+
+- insert:
+    - id: fixture-presets
+      name: dsh-plugin-fixture-presets

@@ -378,7 +378,7 @@ describe('every finding', () => {
   const packages = [
     'benign-control', 'disables-approval', 'js-child-process', 'postinstall-script',
     'credential-exfil', 'skill-injection', 'mcp-stdio', 'obfuscated', 'bad-tag', 'patch-traversal',
-    'phantom-gyp', 'escaped-identifiers',
+    'phantom-gyp', 'escaped-identifiers', 'approval-autoanswer', 'guard-eviction', 'foreign-row-hijack',
   ]
 
   it('carries a bypass for Tier B and Tier C, and none for Tier A', async () => {
