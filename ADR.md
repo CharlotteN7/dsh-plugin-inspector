@@ -782,3 +782,58 @@ examined each and passed it, so the zero is discrimination and not an empty swee
 pins, because that needs a network and is not part of CI. Nothing in that corpus is expected to
 ship a `dsh.bundle.patch` that overrides a row, but that is a prediction, not a measurement, and
 the severity should be treated as provisional until the sweep confirms it.
+
+## 25. Two severity tables, one membership rule, and the exclusions are published
+
+**Decision.** `SECURITY_ROW_IDS` and `SECURITY_SEAM_KEYS` — the two tables that turn a Tier A or
+Tier B finding into a `critical` — admit an entry on one stated rule: replacing or removing it
+either **fails open**, so the agent may afterwards do something it could not before, or **takes
+over the record** by which that could be checked afterwards. Rows examined against the rule and
+kept out are named, with their reason, under "What is deliberately not a finding" in
+`docs/checks.md`. `inspector` joins `SECURITY_SEAM_KEYS` under the second half of the rule.
+
+**Why publish the exclusions.** A severity table with no stated rule is indistinguishable from one
+nobody has revisited, and a reader cannot tell "we checked and it does not qualify" from "we never
+looked". The thirteen core rows `0.1.2-rc.1` added were each checked and none qualified; that is a
+result, and a result nobody can see is worth as much as no result.
+
+**What the rule rejects, and this is the part that does work.** Three of the thirteen read as
+security rows and are not:
+
+- `ui-approval` carries the browser answerer for `approval/request`, and removing it looks like
+  removing the approval prompt. It fails **closed**: with no answerer composed
+  `ApprovalService.request` resolves `'unavailable'`
+  (`@deepseek-ai/dsh-user-approval/lib/index.js:120`), which the tool gate maps to `{kind:'deny'}`
+  (`@deepseek-ai/dsh-tools/lib/index.js:3357`) and sandbox escalation maps to a throw
+  (`@deepseek-ai/dsh-sandbox/lib/index.js:109`). Substituting an answerer is the dangerous act, and
+  that is already B14's `critical` on `approval/request`.
+- `web-fetch-http` is the row `dsh-netguard`'s own install instructions tell operators to disable,
+  because `ctx.web` has no provider priority and a stricter provider cannot be composed beside it
+  without a pin. A table that graded this `critical` would fire on the recommended configuration of
+  a sibling security plugin.
+- `session-log-deepseek` and `plugin-package-inventory-deepseek` send a copy of the session log and
+  the installed-plugin inventory to a third party. Disabling either **improves** the operator's
+  position. Neither is evidence loss: the canonical record stays in `session-persistence-jsonl`,
+  which is in the table.
+
+**Why `inspector` is in the other table anyway, and what the entry does not claim.** The catalogue
+declares it as the façade over the realm's source publisher —
+`publish(topic, payload, monotonicMs?)` at `@deepseek-ai/dsh-tool-cordis/lib/index.js:1558` — and a
+substituted publisher chooses which topics reach the carrier and what each payload holds, so it can
+withhold a record or emit one for an event that never occurred. That is the second half of the
+rule, the half `sessionPersistence` and `sessionTelemetry` are already in for.
+
+It is **not** graded as a decision bypass, and the JSDoc and `docs/checks.md` both say so: nothing
+in the harness is gated on an observation. Nor does any implementation exist to displace. Measured
+in the installed tree: the string `'inspector'` occurs exactly once across the 224 `@deepseek-ai`
+packages, at that catalogue entry; nothing reads `ctx.inspector`; `InspectorJsonValue` and
+`CordisRuntimeTreeReader` appear only in that same bundle. So this is the one table entry graded
+from what the catalogue says the key is for rather than from code that runs, it is marked as such
+in both places, and the release that ships a publisher or a consumer is the one that should settle
+it again against them.
+
+**Measured.** Re-recording the ecosystem sweep at `0.9.0` moved nothing but the version and the
+date: 295 findings, 3 criticals, 21 of 40 packages at high-or-critical, unchanged. A23, B1 and B15
+— the three checks that read `SECURITY_SEAM_KEYS` — fire on no package in that corpus at all, so
+adding a key to the table could not have moved it. That is a bound on the change, not evidence the
+grade is right.

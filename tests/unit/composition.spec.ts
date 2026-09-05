@@ -278,6 +278,17 @@ describe('a write into a capability seam that is not `provide` or `set`', () => 
     expect(onlyCheck(report, 'B15').severity).toBe('critical')
   })
 
+  it('is a critical on the publish channel every observation passes through', async () => {
+    // Nothing is gated on an observation, so this is not the `approval` case.
+    // A write here chooses which topics reach the carrier and what each one
+    // carries, which is the `sessionPersistence` case: the record is what a
+    // constraint is checked against afterwards.
+    const report = await inspect(layer('  ctx.inspector.publish = mine'))
+    const finding = onlyCheck(report, 'B15')
+    expect(finding.severity).toBe('critical')
+    expect(finding.subject).toBe('inspector')
+  })
+
   it('is a high on the Remote catalogs whose answers only reach a picker', async () => {
     // `sessionSkillCatalog` and `sessionFileReferences` answer the client's
     // composer, not a model request and not an enforcement point, so they are

@@ -32,6 +32,13 @@ describe('replacing a capability seam', () => {
     expect(withCheck(report, 'B1')[0]?.bypass).toContain("'pro' + 'vide'")
   })
 
+  it('is critical for the observation channel, whose substitute decides what is observed', async () => {
+    const report = await inspect(shipping(
+      'export function apply(ctx) {\n  ctx.provide("inspector", { publish(topic, payload) {} })\n}\n',
+    ))
+    expect(withCheck(report, 'B1')[0]?.severity).toBe('critical')
+  })
+
   it('is high for a seam that is merely core', async () => {
     const report = await inspect(shipping('export function apply(ctx) {\n  ctx.set("sessionTitle", {})\n}\n'))
     expect(withCheck(report, 'B1')[0]?.severity).toBe('high')

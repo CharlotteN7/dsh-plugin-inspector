@@ -156,7 +156,7 @@ either matched here or degraded there, and never both.
 
 | id | Check | Severity | Method |
 |---|---|---|---|
-| B1 | Replaces a core capability seam — `ctx.provide(<seam>, …)` / `ctx.set(<seam>, …)` where `<seam>` is one of the 68 keys from `api-catalog.ts` | **critical** for one of the 18 `SECURITY_SEAM_KEYS`, high for the other 50 | call expression, first argument folded and matched against the seam key set. The member is read on its receiver, so `provide` destructured off `ctx` and called through the bare name is not this finding — it is `C2` |
+| B1 | Replaces a core capability seam — `ctx.provide(<seam>, …)` / `ctx.set(<seam>, …)` where `<seam>` is one of the 68 keys from `api-catalog.ts` | **critical** for one of the 19 `SECURITY_SEAM_KEYS`, high for the other 49 | call expression, first argument folded and matched against the seam key set. The member is read on its receiver, so `provide` destructured off `ctx` and called through the bare name is not this finding — it is `C2` |
 | B5 | System-prompt mutation — `system-prompt/assemble` listener, or `ctx.systemPrompt.{section,context,variable,tools,suppressRuntimeContext}` | high | call matching |
 | B6 | Credential read — `process.env.*(TOKEN\|KEY\|SECRET\|PASSWORD\|CREDENTIAL)*`, `~/.dsh/credentials`, `~/.npmrc`, `~/.aws`, `~/.ssh`, `ctx.credentials.*` | medium alone | identifier + literal matching |
 | B7 | Network egress — `fetch`, `node:http(s).request`, `node:net`, `WebSocket`, `undici` | medium alone | import + call matching. A module reached through `process.getBuiltinModule` counts, and the finding says so rather than claiming an import |
@@ -167,7 +167,7 @@ either matched here or degraded there, and never both.
 | B12 | Dynamic code construction — `eval`, `new Function`, `vm.runInNewContext`, `module._load` | high | call matching |
 | B13 | Filesystem access outside `ctx.fs` — reaches `node:fs` or `node:fs/promises`, by import, by `require`, or through `process.getBuiltinModule` | medium | Reads and writes through the Node API are invisible to `fs/write-intent`, `fs/edit-intent`, `fs/observed`, and the `fs-sandbox` row, so no policy in the profile sees them and nothing appears in the session log |
 | B14 | Waterfall listener that cannot call `next` — a listener on one of the 14 `WATERFALL_EVENTS` whose trailing parameter is never mentioned in its body, or which declares no parameter in that position at all | **critical** for one of the six `DECISION_EVENTS`, high for the other eight | `EventsService.waterfall` (`@deepseek-ai/cordis@4.0.2`, `lib/index.js:317-327`) pushes `next` as the last dispatch argument and ends the chain at the first listener that returns without calling it — the listeners still queued and the harness's own built-in behavior both stop. `next` is positional, not named, so the check reads whatever the trailing parameter is called. The finding says what the built-in would have done: `approval/request` and `user-questions/request` both reach the surface that asks the user only through the chain, `tools/pre-execute` settles `{kind:'allow'}` and only then consults `ctx.tools.guard()` denials, and `tools/execute`'s built-in **is the tool body**. The listener is resolved either at the call site or from a name bound in the same file, the same bounded resolution B10 uses for tool definitions. Every uncertain shape answers "reaches `next`": a rest parameter, a destructured parameter, `arguments`, a signature with no body, and a listener this tool cannot resolve all produce nothing. `{prepend: true}` and its boolean shorthand are reported inside the finding rather than as a check of their own, because prepending while delegating is what a security plugin does — `dsh-dlp` prepends at three seams |
-| B15 | Write into a catalogued seam's own object graph — assignment to or `delete` of a member of `<ctx>.<seam>`, or a mutating call reaching two or more members past it | **critical** for one of the 18 `SECURITY_SEAM_KEYS`, high for the other 50 | B1 reads `ctx.provide` / `ctx.set` / `ctx.mixin`, and Cordis refuses both of those from a layer that does not own the service: `provide` throws when the isolate key is taken (`lib/index.js:813`) and `set` throws "cannot set property in multiple fibers" (`lib/index.js:783-787`). Writing a member of the object those calls would have replaced reaches the same substitution and meets neither check. Verified against the installed Cordis: a service is one shared instance, is not frozen, and a member written through one plugin's context is what the root context and every other consumer read afterwards. The depth rule is the false-positive guard — `ctx.credentials.set(ref, value)` and `ctx.skills.register(skill)` are the seam's published API at depth 0 and are not this finding; `ctx.tools.layers.global.guards.data.clear()` reaches five members past the seam into the map an unconditional `ctx.tools.guard()` deny is filed in |
+| B15 | Write into a catalogued seam's own object graph — assignment to or `delete` of a member of `<ctx>.<seam>`, or a mutating call reaching two or more members past it | **critical** for one of the 19 `SECURITY_SEAM_KEYS`, high for the other 49 | B1 reads `ctx.provide` / `ctx.set` / `ctx.mixin`, and Cordis refuses both of those from a layer that does not own the service: `provide` throws when the isolate key is taken (`lib/index.js:813`) and `set` throws "cannot set property in multiple fibers" (`lib/index.js:783-787`). Writing a member of the object those calls would have replaced reaches the same substitution and meets neither check. Verified against the installed Cordis: a service is one shared instance, is not frozen, and a member written through one plugin's context is what the root context and every other consumer read afterwards. The depth rule is the false-positive guard — `ctx.credentials.set(ref, value)` and `ctx.skills.register(skill)` are the seam's published API at depth 0 and are not this finding; `ctx.tools.layers.global.guards.data.clear()` reaches five members past the seam into the map an unconditional `ctx.tools.guard()` deny is filed in |
 | B16 | Reaching the Cordis bookkeeping that owns other layers' registrations — `events._hooks`, `events.unregister`, `registry.delete`, `reflect.store`, on a known context receiver | **critical** | `ctx.events`, `ctx.registry` and `ctx.reflect` are own properties of the root context inherited by every child, so reaching them needs no `inject` and leaves no record. `registry.delete` disposes every fiber a plugin owns with no ownership check (`lib/index.js:1564-1571`); splicing `_hooks` removes a listener permanently and the owning layer's own disposer then silently does nothing. This is a wider reach than B14: a veto skips listeners for one dispatch, this deletes the code that would have decided. **Two of the four are write-only.** Reading `ctx.events._hooks['approval/request']?.length` to decide whether a prompt would reach a human is what `dsh-dlp/src/approval-reach.ts` does, so only an assignment, a `delete`, or a mutating call on that table is raised |
 
 **Veto and removal are two different reaches, which is why B14 and B16 are two checks.** It is
@@ -195,6 +195,27 @@ it leaves `process` `undefined` and exposes only the seven `HOST_BUILTIN_INSPECT
 process. So these three checks report a gap the harness itself defines: *the harness denies
 untrusted code this capability, and this package uses it from a position where nothing denies it.*
 That is the harness's reckoning, not a rule invented here.
+
+**One of the nineteen security seams is graded from the catalogue rather than from an
+implementation, and it is marked as such.** `inspector` is declared once in harness `0.1.2-rc.1` —
+`@deepseek-ai/dsh-tool-cordis/lib/index.js:1558`, *"Shared Host/Client service façade over the
+realm's source publisher"*, with `publish(topic, payload, monotonicMs?)` and a read-only
+`CordisRuntimeTreeReader` — and nothing in the release uses it. Measured against an installed tree:
+the string `'inspector'` occurs exactly once across the 224 `@deepseek-ai` packages, at that
+catalogue entry; no file reads `ctx.inspector`; `InspectorJsonValue` and `CordisRuntimeTreeReader`
+appear only in that same bundle.
+
+It is `critical` because a package providing the observation channel claims the position every
+observation passes through: a substituted publisher chooses which topics reach the carrier and what
+payload each carries, so it can withhold the record of something that happened or publish one for
+something that did not, and a consumer downstream cannot tell either case from a quiet system. That
+is the property `sessionPersistence` and `sessionTelemetry` are already in the set for.
+
+It is **not** a decision bypass, and the finding does not claim to be one. Nothing in the harness is
+gated on an observation, so `inspector` is not the `approval` case; and because no implementation
+exists, a package providing it in this release displaces nothing and reaches nothing it could not
+reach under a name of its own. The grade is a statement about what the key is declared for. A
+release that ships a publisher or a consumer is the one that should settle it again against them.
 
 ### Tier C — heuristic; "we cannot read this" is itself the finding
 
@@ -263,3 +284,78 @@ The escalation of the rest is justified: the evaluator is
 `new Function('ctx', 'expr', 'with (ctx) { return eval(expr) }')` — unrestricted eval, with `ctx`
 in scope. And `disabled` re-evaluates at **every mount decision**, so a `!!js` there is not a
 one-shot: it is a recurring execution point that user patch layers HMR-reload live.
+
+### What is deliberately not a finding
+
+Two tables in `src/knowledge.ts` decide when a Tier A or Tier B finding is graded `critical`:
+`SECURITY_ROW_IDS`, the core rows A2 treats as security-relevant, and `SECURITY_SEAM_KEYS`, the
+capability seams A23, B1 and B15 treat the same way. Both are deliberately small. This section says
+what was examined against them and kept out, so a reader can tell a considered exclusion from a row
+nobody looked at.
+
+#### The rule for `SECURITY_ROW_IDS`
+
+A core row belongs in that table when **disabling it fails open or removes evidence**:
+
+- **Fails open** — with the row gone, the agent may afterwards do something it could not before.
+  `sandbox`, `bash-sandbox`, `fs-sandbox`, `permission`, `timeout-policy` are this kind. The
+  constraint was in the row; remove the row and nothing else refuses.
+- **Removes evidence** — the row is where the record of what the agent did was written, and its
+  absence is silent. `session-persistence-jsonl`, `session-telemetry-otel` and
+  `session-checkpoint-policy` are this kind. Nothing fails; there is simply nothing left to
+  reconstruct the run from.
+
+A row that **fails closed** when removed is not a member, however security-adjacent its name reads.
+Neither is a row whose absence takes a feature away and grants nothing. The distinction matters
+because `critical` is a budget: the ecosystem sweep holds every check under a bar for how often it
+may fire (`bar.maxCriticalShareOfCorpus`, ten percent), and a table that collects everything
+alarming-sounding spends that budget on rows an operator turns off on purpose.
+
+#### Rows considered against that rule and excluded
+
+These are the thirteen core rows harness `0.1.2-rc.1` added, each checked against the rule above and
+kept out of `SECURITY_ROW_IDS`.
+
+**Excluded is not the same as unreported.** Disabling any core row is still an A3 finding — `high`
+for a row the `@deepseek-ai/dsh-base` layer inserts, `medium` for one only a surface bundle does —
+and the patch that does it is in the `targetedRows` fact regardless. What these rows do not get is
+A2's `critical`.
+
+| Row | Bundle | Why it is not a security row |
+|---|---|---|
+| `ui-approval` | web-app | It carries the browser answerer for `approval/request` (`@deepseek-ai/dsh-client-ui-approval/lib/client.js:281`), so removing it looks like removing the approval prompt. It fails **closed**: with no answerer composed, `ApprovalService.request` resolves `'unavailable'` (`@deepseek-ai/dsh-user-approval/lib/index.js:120`), and `'unavailable'` maps to `{ kind: 'deny' }` in the tool gate (`@deepseek-ai/dsh-tools/lib/index.js:3311`, `:3357`) and to a thrown refusal on sandbox escalation (`@deepseek-ai/dsh-sandbox/lib/index.js:109`). Disabling it refuses tool calls that need approval; it does not permit them. The plugin that *substitutes* an answerer is a different act and is B14's `critical` on `approval/request` |
+| `web-fetch-http` | base | The shipped HTTP fetch provider. `ctx.web` has no provider priority and no last-wins rule, so a stricter replacement provider cannot be composed beside it without a pin — which is why `dsh-netguard`'s own install instructions tell operators to write `- id: web-fetch-http` / `disabled: true`. Disabling it removes an egress path; it adds no reach |
+| `session-log-deepseek` | base | Contributes a `dsh_session_log` field carrying the session log's event suffix to official DeepSeek API requests. Disabling it stops an outbound copy of the session log to a third party — a privacy improvement, not evidence loss, because the canonical record stays in `session-persistence-jsonl`. Its `enabled` also defaults to `false` (`lib/index.js:16`, `apply` returns immediately at `:87`) and the base bundle inserts the row with no config, so in a stock profile the row is already inert |
+| `plugin-package-inventory-deepseek` | base | The same shape: it contributes the active plugin-package inventory to official DeepSeek requests. Disabling it stops disclosing which plugins are installed. `enabled` defaults to `true` here, so unlike the row above this one is live in a stock profile — and it is still a disclosure the operator is entitled to switch off |
+| `subagent-model-selection-settings` | web-app | Owns the `subagentModelSelection` settings service, whose `enabled` defaults to `false` (`@deepseek-ai/dsh-tool-subagent/lib/model-selection-settings.js:45`). When it is off, no route policy is recorded and `@deepseek-ai/dsh-tool-subagent/lib/invariant.js:41` requires the model-selection tool fields not to be offered. The row's absence therefore equals its shipped default, and it is the *enabled* state that restricts. A profile that opted in with `modelSelectionSettings: true` and then loses the row fails **loud** at mount (`lib/index.js:581`) |
+| `session-controller` | web-app | Host service backing the generated `ctx.remote.session` namespace (`@deepseek-ai/dsh-api-session-controller/lib/index.js:2598`) |
+| `settings-controller` | web-app | Host service backing `ctx.remote.settings` and `ctx.remote.credentials` (`@deepseek-ai/dsh-api-settings-controller/lib/index.js:412`, `:146`) |
+| `workspace-controller` | web-app | Host service backing `ctx.remote.workspace` and `ctx.remote.directoryPicker` (`@deepseek-ai/dsh-api-workspace-controller/lib/index.js:662`, `:415`) |
+| `ui-chat`, `ui-schedule`, `ui-session` | web-app | Client surfaces. None registers a listener on a waterfall event: `ctx.remote.$on` appears in none of the three |
+| `session-turn-outline` | web-app | A pure fold of `turn/start` boundaries into the chat rail's turn outline. A projection the client renders |
+| `deepseek-llm-api-extensions` | base | The registry through which plugins own independent top-level fields on official DeepSeek requests. Removing it removes the registry, and the two rows that inject it — `session-log-deepseek` and `plugin-package-inventory-deepseek` — then fail to mount. It grants nothing; the adapter, not the registry, is what refuses an extension field that collides with `messages`, `tools` or `model` (`@deepseek-ai/dsh-llm-deepseek/lib/index.js:1748`) |
+
+The three `*-controller` rows share one reason, stated once: each is a host service backing a
+generated `ctx.remote.*` namespace that the browser client calls across the wire. Disabling one
+deletes the wire namespace, so the client loses that function and no verb is served less carefully
+than before — the redaction and path fencing live inside the verbs that no longer exist.
+
+#### Why a controller can be a security seam without its row being a security row
+
+`sessionController` and `settingsController` **are** in `SECURITY_SEAM_KEYS` while `session-controller`
+and `settings-controller` are **not** in `SECURITY_ROW_IDS`, and that is not a disagreement between
+the two tables. They grade two different acts:
+
+- **Providing a substitute** for the seam puts your code on the path the real traffic takes. Every
+  secret typed into the settings page, and every new session's cwd, then passes through an
+  implementation the user never chose. That is `critical`.
+- **Disabling the row** removes the path. Nothing travels it, so nothing on it is at risk.
+
+Substitution is the dangerous direction here; deletion is not. A table that could not tell them
+apart would have to be wrong in one direction or the other.
+
+#### What this section does not cover
+
+This is a statement about severity tables, not about the analysis ceiling. What the tool cannot
+decide at all — intent, dataflow, and the one-line bypass every Tier B check has — is
+[its own page](ceiling.html).

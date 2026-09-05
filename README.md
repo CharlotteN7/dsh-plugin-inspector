@@ -79,6 +79,20 @@ Findings are tiered by how much you should trust them:
 
 [Every check, by tier →](https://charlotten7.github.io/dsh-plugin-inspector/checks.html)
 
+## What it deliberately does not flag
+
+A `critical` is only worth reading if it is rare, so the two tables that decide one — the core rows
+A2 treats as security-relevant, and the capability seams A23, B1 and B15 do — are kept small on a
+stated rule: a row is in when disabling it **fails open** or **silently removes evidence**. A row
+that fails closed when removed is out, however security-adjacent its name reads, and so is one whose
+absence takes a feature away and grants nothing.
+
+The rows checked against that rule and kept out are named with their reasons, so you can tell "we
+checked and it does not qualify" from "we never looked". Excluded is not unreported: disabling any
+core row is still an A3 finding.
+
+[What is deliberately not a finding →](https://charlotten7.github.io/dsh-plugin-inspector/checks.html#what-is-deliberately-not-a-finding)
+
 ## The ceiling
 
 **This is not a malware scanner and it cannot be one.** Capability is decidable from source;

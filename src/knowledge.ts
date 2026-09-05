@@ -219,7 +219,16 @@ export const CORE_ROW_IDS: ReadonlySet<string> = new Set(CORE_ROWS.keys())
  * Disabling or reconfiguring one of these from a third-party patch layer is
  * the highest-value finding this tool produces, and it is plain YAML.
  *
- * Each entry names what stops holding when the row stops running.
+ * Each entry names what stops holding when the row stops running. Membership
+ * needs one of two properties: disabling the row **fails open**, so the agent
+ * may afterwards do something it could not before, or it **removes evidence**
+ * without saying so, leaving nothing to reconstruct what the agent did. A row
+ * that fails closed on removal, or whose absence only takes a feature away, is
+ * not a member however security-adjacent its name reads.
+ *
+ * The rows examined against that rule and kept out are listed with their
+ * reasons under "What is deliberately not a finding" in `docs/checks.md`, so a
+ * reader can tell a considered exclusion from a row nobody looked at.
  */
 export const SECURITY_ROW_IDS: ReadonlyMap<string, string> = new Map([
   ['approval', 'user approval prompts for tool calls'],
@@ -262,7 +271,12 @@ export const SEAM_KEYS: ReadonlySet<string> = new Set([
 ])
 
 /**
- * The subset of {@link SEAM_KEYS} whose replacement removes a constraint.
+ * The subset of {@link SEAM_KEYS} whose replacement either removes a constraint
+ * or takes over the record by which one could be checked afterwards. Most
+ * members are the first kind — `approval`, `sandbox`, `credentials`. The set
+ * already holds two of the second, `sessionPersistence` and `sessionTelemetry`,
+ * and each entry below says which kind it is rather than borrowing the other's
+ * sentence.
  *
  * `authorization` is the registry of flows that obtain a credential through a
  * conversation with the user, so providing it means owning that conversation.
@@ -314,6 +328,31 @@ export const SEAM_KEYS: ReadonlySet<string> = new Set([
  *   (`@deepseek-ai/dsh-webhook/lib/types/session.js:94`, `:117`, `:120`).
  *   Providing it picks the approval and sandbox preset for an agent started by
  *   a remote delivery with no user present.
+ * - `inspector` is the second kind, and the only member graded from the
+ *   catalogue rather than from an implementation. The catalogue declares it as
+ *   the façade over the realm's source publisher, with `publish(topic, payload,
+ *   monotonicMs?)` and a read-only `CordisRuntimeTreeReader`
+ *   (`@deepseek-ai/dsh-tool-cordis/lib/index.js:1558`, the two method
+ *   signatures at `:1562` and `:1579`). Providing it
+ *   takes no decision away from anyone: nothing is gated on an observation, and
+ *   on that ground the key does not belong beside `approval`. What it takes is
+ *   the position observations pass through. A substituted publisher chooses
+ *   which topics reach the carrier and what payload each one carries, so it can
+ *   withhold the record of something that happened or publish one for something
+ *   that did not, and a consumer downstream cannot tell either from a quiet
+ *   system. That is the property this set already recognises in
+ *   `sessionPersistence` and `sessionTelemetry`.
+ *
+ *   No implementation exists to displace. In `0.1.2-rc.1` the key is declared
+ *   once and used nowhere: `'inspector'` as a string literal occurs exactly
+ *   once across the 224 `@deepseek-ai` packages in the installed tree — that
+ *   catalogue entry — no file reads `ctx.inspector`, and `InspectorJsonValue`
+ *   and `CordisRuntimeTreeReader` appear only in that same bundle. So a package
+ *   providing `inspector` in this release displaces nothing and reaches nothing
+ *   it could not reach under a name of its own. This entry grades what the
+ *   catalogue says the key is for, not code that runs today, and it is the one
+ *   entry a release that ships a publisher or a consumer should settle again
+ *   against them.
  *
  * Excluded:
  * - `workspaceController` forwards `request.path` to
@@ -345,20 +384,12 @@ export const SEAM_KEYS: ReadonlySet<string> = new Set([
  *   field colliding with the base request, so `messages`, `tools` and `model`
  *   are not writable through it. The constraint is in the adapter, not the
  *   registry the substitution replaces.
- * - `inspector` is declared by the catalogue and implemented by no shipped
- *   package: in `0.1.2-rc.1` the key, `InspectorJsonValue` and
- *   `CordisRuntimeTreeReader` occur only in
- *   `@deepseek-ai/dsh-tool-cordis/lib/index.js`, and nothing provides or reads
- *   `ctx.inspector`. No composed row enforces anything through it, so a
- *   substitution displaces nothing. This is the one entry decided from the
- *   catalogue rather than from an implementation; a release that ships one is a
- *   reason to decide it again.
  */
 export const SECURITY_SEAM_KEYS: ReadonlySet<string> = new Set([
   'approval', 'authorization', 'sandbox', 'sandboxPolicy', 'permissionPresets', 'credentials',
   'credentialsController', 'settingsController', 'sessionController', 'webhookRuntime',
-  'subprocess', 'shell', 'fs', 'tools', 'agentLoop', 'sessionPersistence', 'sessionTelemetry',
-  'invariants',
+  'subprocess', 'shell', 'fs', 'tools', 'agentLoop', 'inspector', 'sessionPersistence',
+  'sessionTelemetry', 'invariants',
 ])
 
 /**
